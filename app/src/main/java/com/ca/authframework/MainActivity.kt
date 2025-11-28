@@ -12,11 +12,19 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import com.ca.authframework.ui.theme.AuthframeworkTheme
+import com.ca.continuousauth.ContinuousAuth
+import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        val continuousAuth = ContinuousAuth(this@MainActivity)
+//        continuousAuth.runEnrollmentPhase(10)
+
+        continuousAuth.runFullWorkflow(this@MainActivity)
         setContent {
             AuthframeworkTheme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->

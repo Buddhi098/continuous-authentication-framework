@@ -21,3 +21,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "authframework"
 include(":app")
+include(":continuousauth")
