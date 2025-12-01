@@ -1,165 +1,234 @@
 package com.ca.continuousauth
 
 import android.content.Context
-import com.ca.continuousauth.config.AuthConfigManager
-import com.ca.continuousauth.core.authmodel.AuthModel
-import com.ca.continuousauth.core.featureextractor.sensor.SensorDataCollector
-import com.ca.continuousauth.core.featureextractor.sensor.denoiser.denoiseWith
-import com.ca.continuousauth.core.featureextractor.sensor.denoiser.denoisercollection.EMADenoiser
-import com.ca.continuousauth.core.featureextractor.sensor.denoiser.denoisercollection.SMADenoiser
-import com.ca.continuousauth.core.featureextractor.sensor.featureextractor.FeatureExtractorPipeline
-import com.ca.continuousauth.core.featureextractor.sensor.featureextractor.extractorcollection.CorrelationFeatureExtractor
-import com.ca.continuousauth.core.featureextractor.sensor.featureextractor.extractorcollection.FFTFeatureExtractor
-import com.ca.continuousauth.core.featureextractor.sensor.featureextractor.extractorcollection.MagnitudeFeatureExtractor
-import com.ca.continuousauth.core.featureextractor.sensor.featureextractor.extractorcollection.StatisticalFeatureExtractor
-import com.ca.continuousauth.core.featureextractor.sensor.featureextractor.sensorFeatureExtractor
+import com.ca.continuousauth.authmodel.AuthModel
+import com.ca.continuousauth.featuremodalities.FeatureModel
 import com.ca.continuousauth.utils.Logger
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.take
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.*
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.File
-import java.nio.FloatBuffer
 
-class ContinuousAuth(context: Context) {
+data class CollectionState(
+    val remainingSamples: Int,
+    val collectedList: List<List<Float>>
+)
+
+class ContinuousAuth(private val context: Context) {
 
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
-    private val enrollmentSample = AuthConfigManager.config.enrollmentSamples
-    private val sensorDataCollector : SensorDataCollector = SensorDataCollector(context , enableLogging =false)
+    private val stateFile = File(context.filesDir, "collect_state.json")
 
-    private val emaDenoiser : EMADenoiser = EMADenoiser(alpha = 0.2f)
-    private val smaDenoiser : SMADenoiser = SMADenoiser(windowSize = 3)
+    // -----------------------------
+    // Sample collection state
+    // -----------------------------
+    private val _isCollecting = MutableStateFlow(false)
+    val isCollecting: StateFlow<Boolean> = _isCollecting.asStateFlow()
 
-    fun runEnrollmentPhase(authenticationFz: Int){
+    private val _progress = MutableStateFlow(0f)
+    val progress: StateFlow<Float> = _progress.asStateFlow()
 
-        val rawSensorBatchFlow: Flow<List<FloatArray>> = sensorDataCollector.batchFlow
-        val denoisedSensorBatchFlow: Flow<List<FloatArray>> = rawSensorBatchFlow.denoiseWith(emaDenoiser , enableLogging = false)
+    private val _collectedSamples = MutableSharedFlow<List<Float>>(extraBufferCapacity = 200)
+    val collectedSamples: SharedFlow<List<Float>> = _collectedSamples.asSharedFlow()
 
-        val pipeline = FeatureExtractorPipeline(
-            extractors = listOf(
-                StatisticalFeatureExtractor(),
-                MagnitudeFeatureExtractor(),
-                CorrelationFeatureExtractor(),
-                FFTFeatureExtractor() // optional
-            )
-        )
-        val featureFlow = sensorFeatureExtractor(denoisedSensorBatchFlow, pipeline , enableLogging = true).take(enrollmentSample)
+    private var collectJob: Job? = null
+    private var paused = false
+    private var remainingSamples = 0
+    private val collectedList = mutableListOf<List<Float>>()
 
+    private val featureModel = FeatureModel()
+    private val authModel = AuthModel(context)
 
-        scope.launch {
-            featureFlow.collect { featureVector ->
-                Logger.d("Feature vector size: ${featureVector.size}")
-                Logger.d(featureVector.joinToString(", "))
-            }
+    // -----------------------------
+    // Training state
+    // -----------------------------
+    private val _isTraining = MutableStateFlow(false)
+    val isTraining: StateFlow<Boolean> = _isTraining.asStateFlow()
+
+    private val _trainingProgress = MutableStateFlow(0f)
+    val trainingProgress: StateFlow<Float> = _trainingProgress.asStateFlow()
+
+    private val _trainingStatus = MutableStateFlow("")
+    val trainingStatus: StateFlow<String> = _trainingStatus.asStateFlow()
+
+    private var trainingJob: Job? = null
+
+    init {
+        // Load previous state if exists
+        loadCollectionState()?.let { state ->
+            remainingSamples = state.remainingSamples
+            collectedList.addAll(state.collectedList)
+            Logger.d("Resuming from saved state: remainingSamples=$remainingSamples, collected=${collectedList.size}")
         }
-
     }
 
-    fun trainModel(context: Context){
-        val authModel = AuthModel(context)
+    // -----------------------------
+    // Collect training samples
+    // -----------------------------
+    fun startCollecting(sampleCount: Int) {
+        if (_isCollecting.value) return
 
-        // Load model from assets
+        _isCollecting.value = true
+        paused = false
+        remainingSamples = sampleCount.coerceAtLeast(collectedList.size)
+        updateProgress()
 
-        // Run training in a background thread (never block UI thread)
-        CoroutineScope(Dispatchers.Default).launch {
-            authModel.runTrainingSession()
+        val flow = featureModel.getFeatureFlow(context)
 
-            // Once training is done, you can close the interpreter
-            authModel.close()
+        collectJob = scope.launch {
+            try {
+                flow.collect { vector ->
+                    if (paused) {
+                        saveCollectionState()
+                        return@collect
+                    }
+
+                    _collectedSamples.emit(vector)
+                    collectedList.add(vector)
+                    remainingSamples = (sampleCount - collectedList.size).coerceAtLeast(0)
+                    updateProgress()
+
+                    Logger.d("Collected sample ${collectedList.size}, dim:${vector.size}")
+
+                    if (collectedList.size >= sampleCount) {
+                        Logger.d("Training sample collection completed.")
+                        _isCollecting.value = false
+                        clearCollectionState()
+                        cancel()
+                    }
+                }
+            } catch (e: CancellationException) {
+                Logger.d("Collection job cancelled")
+            }
         }
     }
 
-    fun runFullWorkflow(context: Context) {
+    fun pauseCollecting() {
+        if (!_isCollecting.value || paused) return
+        paused = true
+        collectJob?.cancel()
+        _isCollecting.value = false
+        saveCollectionState()
+        Logger.d("Collection paused. Remaining samples: $remainingSamples")
+    }
 
-        val authModel = AuthModel(context)
-        val checkpointFile = File(context.filesDir,"user_profile_v1.ckpt")
+    fun resumeCollecting() {
+        if (!_isCollecting.value && paused && remainingSamples > 0) {
+            paused = false
+            startCollecting(remainingSamples + collectedList.size)
+            Logger.d("Collection resumed. Remaining samples: $remainingSamples")
+        }
+    }
 
-        // ----------------------------------------------------------------
-        // STEP 1: RESTORE EXISTING PROFILE (If available)
-        // ----------------------------------------------------------------
-        if (checkpointFile.exists()) {
-            Logger.d("Found existing user profile. Loading...")
-            val success = authModel.loadCheckpoint(checkpointFile)
-            if (success) {
-                Logger.d("Profile loaded successfully! Model is personalized.")
-            } else {
-                Logger.e("Failed to load profile. Using factory defaults.")
+    fun stopCollecting() {
+        collectJob?.cancel()
+        collectJob = null
+        _isCollecting.value = false
+        paused = false
+        remainingSamples = 0
+        collectedList.clear()
+        _progress.value = 0f
+        clearCollectionState()
+        Logger.d("Collection stopped and cleared.")
+    }
+
+    private fun updateProgress() {
+        _progress.value = if (remainingSamples + collectedList.size == 0) 0f
+        else collectedList.size.toFloat() / (remainingSamples + collectedList.size)
+    }
+
+    fun getCollectedSampleCount(): Int {
+        return collectedList.size
+    }
+
+
+    // -----------------------------
+    // Save/load collection state
+    // -----------------------------
+    private fun saveCollectionState() {
+        try {
+            val jsonArray = JSONArray()
+            collectedList.forEach { sample ->
+                val sampleArray = JSONArray()
+                sample.forEach { sampleArray.put(it) }
+                jsonArray.put(sampleArray)
             }
-        } else {
-            Logger.d("No profile found. Starting with factory model.")
+            val stateJson = JSONObject()
+            stateJson.put("remainingSamples", remainingSamples)
+            stateJson.put("collectedList", jsonArray)
+            stateFile.writeText(stateJson.toString())
+            Logger.d("Collection state saved.")
+        } catch (e: Exception) {
+            Logger.e("Failed to save collection state: ${e.message}")
         }
+    }
 
-        // ----------------------------------------------------------------
-        // STEP 2: ON-DEVICE TRAINING (Personalization)
-        // ----------------------------------------------------------------
-        Logger.d("--- Starting Training Session ---")
-
-        // Run training: 5 epochs, batch size 32, total 100 samples
-        // Note: In a real app, you would pass actual sensor data buffers here,
-        // but currently runTrainingSession generates internal dummy data.
-        authModel.runTrainingSession(
-            epochs = 5,
-            batchSize = 1,
-            numTrainings = 100
-        )
-
-        Logger.d("Training finished.")
-
-        // ----------------------------------------------------------------
-        // STEP 3: SAVE THE NEW STATE
-        // ----------------------------------------------------------------
-        Logger.d("--- Saving Profile ---")
-        val saved = authModel.saveCheckpoint(checkpointFile)
-
-        if (saved) {
-            Logger.d("User profile saved to: ${checkpointFile.absolutePath}")
-            Logger.d("File size: ${checkpointFile.length()} bytes")
-        } else {
-            Logger.e( "Failed to save profile!")
-        }
-
-        // ----------------------------------------------------------------
-        // STEP 4: INFERENCE (Authentication)
-        // ----------------------------------------------------------------
-        Logger.d("--- Running Inference ---")
-
-        val batchSize = 1
-        val inputDim = 20
-
-        // Create dummy input (Simulating live sensor data)
-        val inputBuffer = FloatBuffer.allocate(inputDim * batchSize)
-        for (i in 0 until inputDim) {
-            inputBuffer.put(0.5f) // Dummy value
-        }
-
-        // Run inference
-        val reconstruction = authModel.infer(inputBuffer, batchSize)
-
-        // Analyze results
-        if (reconstruction != null) {
-            val outputVector = reconstruction[0] // First item in batch
-
-            // Calculate reconstruction error (MSE) roughly
-            var errorSum = 0.0
-            for (i in 0 until inputDim) {
-                val diff = 0.5f - outputVector[i]
-                errorSum += (diff * diff)
+    private fun loadCollectionState(): CollectionState? {
+        return try {
+            if (!stateFile.exists()) return null
+            val text = stateFile.readText()
+            val json = JSONObject(text)
+            val remaining = json.getInt("remainingSamples")
+            val collected = mutableListOf<List<Float>>()
+            val array = json.getJSONArray("collectedList")
+            for (i in 0 until array.length()) {
+                val sampleArray = array.getJSONArray(i)
+                val sample = MutableList(sampleArray.length()) { j -> sampleArray.getDouble(j).toFloat() }
+                collected.add(sample)
             }
-            val mse = errorSum / inputDim
-
-            Logger.d("Inference Output [0..4]: ${outputVector.take(5).joinToString(", ")}...")
-            Logger.d("Reconstruction Error (MSE): $mse")
-
-            // Simple threshold logic for authentication
-            if (mse < 0.1) {
-                Logger.d("AUTH RESULT: Authenticated (User Match)")
-            } else {
-                Logger.e("AUTH RESULT: Rejected (Anomaly Detected)")
-            }
-        } else {
-            Logger.e("Inference returned null!")
+            CollectionState(remaining, collected)
+        } catch (e: Exception) {
+            Logger.e("Failed to load collection state: ${e.message}")
+            null
         }
+    }
+
+    private fun clearCollectionState() {
+        if (stateFile.exists()) stateFile.delete()
+    }
+
+    // -----------------------------
+    // Training API
+    // -----------------------------
+    fun startTrainingModel(onComplete: (() -> Unit)? = null) {
+        if (_isTraining.value) return
+        if (collectedList.isEmpty()) {
+            _trainingStatus.value = "No samples to train"
+            onComplete?.invoke()
+            return
+        }
+
+        trainingJob = scope.launch {
+            _isTraining.value = true
+            _trainingProgress.value = 0f
+            _trainingStatus.value = "Training started..."
+
+            try {
+                authModel.runTrainingSession(collectedList)
+                _trainingStatus.value = "Training completed successfully"
+                Logger.d("Training completed successfully")
+            } catch (e: Exception) {
+                _trainingStatus.value = "Training failed: ${e.message}"
+                Logger.e("Training failed: ${e.message}")
+            } finally {
+                _isTraining.value = false
+                onComplete?.invoke()
+            }
+        }
+    }
+
+    fun getAllCollectedSamples(): List<List<Float>> {
+        return collectedList.toList()
+    }
+
+
+    fun stopTraining() {
+        trainingJob?.cancel()
+        trainingJob = null
+        _isTraining.value = false
+        _trainingProgress.value = 0f
+        _trainingStatus.value = "Training cancelled"
+        Logger.d("Training stopped.")
     }
 }

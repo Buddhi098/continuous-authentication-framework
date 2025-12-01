@@ -14,7 +14,7 @@ data class AuthConfig private constructor(
     val enrollmentSamples: Int,
 
     // 2. Data Processing & Windowing
-    val windowSize: Int, // The main window size
+    val windowSize: Int,
     val windowOverlapRatio: Double,
 
     // 3. Feature Toggles
@@ -22,12 +22,15 @@ data class AuthConfig private constructor(
     val enableKeystrokeFeature: Boolean,
     val enableTouchDynamicFeature: Boolean,
 
-    // 4. ML Model & Remote Config
+    // 4. ML / DL Model, Training & Feature Dimensions
     val modelDownloadUrl: String?,
     val googleDriveFileId: String?,
-    val localModelPath: File?, // Useful for bundling models within the app
+    val localModelPath: File?,
+    val trainingEpochs: Int,
+    val trainingBatchSize: Int,
+    val featureDimension: Int,
 
-    // 6. System
+    // 5. System
     val enableLogging: Boolean
 ) {
 
@@ -35,12 +38,12 @@ data class AuthConfig private constructor(
      * Builder for constructing an [AuthConfig] instance.
      */
     class Builder {
-        // Defaults based on your requirements
-        private var authenticationFrequencyMs: Long = 10_000L // Changed to 10s
-        private var sampleCollectionFrequencyHz: Int = 64     // 50 Hz
+
+        // --- Defaults ---
+        private var authenticationFrequencyMs: Long = 10_000L
+        private var sampleCollectionFrequencyHz: Int = 64
         private var enrollmentSamples: Int = 2000
 
-        // Renamed/Simplified from minWindowSize/windowSize in original
         private var windowSize: Int = 32
         private var windowOverlapRatio: Double = 0.2
 
@@ -52,24 +55,30 @@ data class AuthConfig private constructor(
         private var googleDriveFileId: String? = null
         private var localModelPath: File? = null
 
+        // ML / DL training defaults
+        private var trainingEpochs: Int = 5
+        private var trainingBatchSize: Int = 32
+
+        // Feature dimension (number of features per sample)
+        private var featureDimension: Int = 84
+
         private var enableLogging: Boolean = true
 
         // --- Setters ---
+        fun setAuthenticationFrequency(milliseconds: Long) = apply {
+            this.authenticationFrequencyMs = milliseconds
+        }
 
-        fun setAuthenticationFrequency(milliseconds: Long) = apply { this.authenticationFrequencyMs = milliseconds }
+        fun setSampleCollectionFrequency(hz: Int) = apply {
+            this.sampleCollectionFrequencyHz = hz
+        }
 
-        /**
-         * Sets the sampling rate for sensors in Hertz (samples per second).
-         */
-        fun setSampleCollectionFrequency(hz: Int) = apply { this.sampleCollectionFrequencyHz = hz }
+        fun setEnrollmentSample(samples: Int) = apply {
+            this.enrollmentSamples = samples
+        }
 
-        fun setEnrollmentSample(samples: Int) = apply { this.enrollmentSamples = samples }
-
-        /**
-         * Sets the window size (number of samples) and the overlap ratio for data processing.
-         */
         fun setWindowingConfig(size: Int, overlapRatio: Double) = apply {
-            this.windowSize = size // Using the size parameter
+            this.windowSize = size
             this.windowOverlapRatio = overlapRatio
         }
 
@@ -85,24 +94,37 @@ data class AuthConfig private constructor(
         }
 
         fun setLocalModel(file: File) = apply { this.localModelPath = file }
-        fun setLoggingEnabled(enabled: Boolean) = apply { this.enableLogging = enabled }
+
+        fun setTrainingConfig(epochs: Int, batch: Int) = apply {
+            this.trainingEpochs = epochs
+            this.trainingBatchSize = batch
+        }
 
         /**
-         * Validates and builds the config object.
-         * @throws IllegalArgumentException if configuration values are invalid.
+         * Sets number of features per fused/sample vector.
          */
+        fun setFeatureDimension(dim: Int) = apply {
+            this.featureDimension = dim
+        }
+
+        fun setLoggingEnabled(enabled: Boolean) = apply {
+            this.enableLogging = enabled
+        }
+
+        // --- Build ---
         fun build(): AuthConfig {
-            // Validation Logic
             require(windowOverlapRatio in 0.0..1.0) { "Overlap ratio must be between 0.0 and 1.0" }
-            // Validation is now on the single windowSize property
             require(windowSize > 25) { "Window size must be greater than 25" }
             require(sampleCollectionFrequencyHz > 0) { "Frequency must be positive" }
+            require(trainingEpochs > 0) { "Epochs must be > 0" }
+            require(trainingBatchSize > 0) { "Batch size must be > 0" }
+            require(featureDimension > 0) { "Feature dimension must be > 0" }
 
             return AuthConfig(
                 authenticationFrequencyMs,
                 sampleCollectionFrequencyHz,
                 enrollmentSamples,
-                windowSize, // Passed the correct property
+                windowSize,
                 windowOverlapRatio,
                 enableSensorFeature,
                 enableKeystrokeFeature,
@@ -110,6 +132,9 @@ data class AuthConfig private constructor(
                 modelDownloadUrl,
                 googleDriveFileId,
                 localModelPath,
+                trainingEpochs,
+                trainingBatchSize,
+                featureDimension,
                 enableLogging
             )
         }
