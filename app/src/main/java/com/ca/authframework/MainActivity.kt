@@ -1,12 +1,12 @@
 package com.ca.authframework
 
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Scaffold
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.ca.authframework.components.CollectionScreen
@@ -18,23 +18,50 @@ import com.ca.authframework.ui.theme.AuthframeworkTheme
 
 class MainActivity : ComponentActivity() {
 
-    // Single ContinuousAuth instance
-    val targetSamples : Int = 200
-    private val continuousAuth by lazy { ContinuousAuth(this) }
+    companion object {
+        private const val TAG = "CAFramework"
+    }
 
+    // Target sample count
+    private val targetSamples: Int = 10
+
+    // Single ContinuousAuth instance
+    private val continuousAuth by lazy {
+        Log.d(TAG, "Initializing ContinuousAuth")
+        ContinuousAuth(
+            context = this ,
+            enrollmentSamples = targetSamples ,
+            shouldLogFeatureVector = true,
+            enableLog = true
+        )
+    }
     // ViewModels
-    private val collectionViewModel by lazy { CollectionViewModel(continuousAuth) }
-    private val trainingViewModel by lazy { TrainingViewModel(continuousAuth) }
+    private val collectionViewModel by lazy {
+        Log.d(TAG, "Initializing CollectionViewModel")
+        CollectionViewModel(continuousAuth)
+    }
+
+    private val trainingViewModel by lazy {
+        Log.d(TAG, "Initializing TrainingViewModel")
+        TrainingViewModel(continuousAuth)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Log.d(TAG, "onCreate() called")
+
         enableEdgeToEdge()
+        Log.d(TAG, "Edge-to-edge enabled")
 
         setContent {
+            Log.d(TAG, "Setting Compose content")
+
             AuthframeworkTheme {
                 Scaffold(
                     modifier = Modifier.fillMaxSize()
                 ) { innerPadding ->
+
+                    Log.d(TAG, "Scaffold composed")
 
                     Column(
                         modifier = Modifier
@@ -43,14 +70,18 @@ class MainActivity : ComponentActivity() {
                             .padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(24.dp)
                     ) {
-                        // Sample Collection UI
+
+                        Log.d(TAG, "Composing CollectionScreen")
                         CollectionScreen(
                             viewModel = collectionViewModel,
                             targetSamples = targetSamples
                         )
 
-                        // Training UI
-                        TrainingScreen(viewModel = trainingViewModel , targetSamples = targetSamples)
+                        Log.d(TAG, "Composing TrainingScreen")
+                        TrainingScreen(
+                            viewModel = trainingViewModel,
+                            targetSamples = targetSamples
+                        )
                     }
                 }
             }
@@ -59,13 +90,13 @@ class MainActivity : ComponentActivity() {
 
     override fun onPause() {
         super.onPause()
-        // Auto-pause collection when app goes to background
+        Log.d(TAG, "onPause() called → Pausing collection")
         collectionViewModel.pauseCollection()
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        // Ensure collection is paused and resources cleared on destroy
+        Log.d(TAG, "onDestroy() called → Cleaning up resources")
         collectionViewModel.pauseCollection()
     }
 }

@@ -8,7 +8,11 @@ object Logger {
     private const val TAG = "CAFramework"
 
     // Use the config flag directly
-    private val enabled = AuthConfigManager.config.enableLogging
+    private var enabled = AuthConfigManager.config.enableLogging
+
+    fun setEnabled(value: Boolean) {
+        enabled = value
+    }
 
     fun d(msg: String) {
         if (enabled) Log.d(TAG, msg)

@@ -35,11 +35,11 @@ class TrainingViewModel(private val auth: ContinuousAuth) : ViewModel() {
         collectedSamples.addAll(auth.getAllCollectedSamples())
 
         // Observe new samples
-        viewModelScope.launch {
-            auth.collectedSamples.collect { sample ->
-                collectedSamples.add(sample)
-            }
-        }
+//        viewModelScope.launch {
+//            auth.collectedSamples.collect { sample ->
+//                collectedSamples.add(sample)
+//            }
+//        }
 
         // Observe training progress and status
         viewModelScope.launch {

@@ -17,8 +17,8 @@ fun CollectionScreen(viewModel: CollectionViewModel, targetSamples: Int = 100) {
 
     val isCollecting by viewModel.isCollecting.collectAsState()
     val progress by viewModel.progress.collectAsState()
-    val collectedCount = viewModel.collectedCount
-    val isPaused = viewModel.isPaused
+    val collectedCount by viewModel.collectedSampleCount.collectAsState()
+    val isPaused by viewModel.isPaused.collectAsState()
 
     Column(
         modifier = Modifier
@@ -114,7 +114,7 @@ fun CollectionScreen(viewModel: CollectionViewModel, targetSamples: Int = 100) {
             }
 
             Button(
-                onClick = { viewModel.stopCollection() },
+                onClick = { viewModel.clearCollection() },
                 modifier = Modifier.weight(1f),
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF44336))
             ) { Text("Clear", color = Color.White) }
