@@ -11,7 +11,7 @@ fun StatusBadge(
     label: String,
     value: String
 ) {
-    val isAuthenticated = label.equals("authenticated", ignoreCase = true)
+    val isAuthenticated = value.equals("Authenticated", ignoreCase = true)
 
     val backgroundColor = if (isAuthenticated) {
         MaterialTheme.colorScheme.tertiaryContainer   // green-ish
