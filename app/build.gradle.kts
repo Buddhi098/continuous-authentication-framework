@@ -62,4 +62,16 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 
     implementation(project(":continuousauth"))
+    // WorkManager
+    implementation("androidx.work:work-runtime-ktx:2.8.1")
+    // Jetpack Compose Navigation
+    implementation("androidx.navigation:navigation-compose:2.7.3")
+
+    implementation("androidx.compose.material3:material3:1.3.2")
+    implementation(platform("androidx.compose:compose-bom:2025.12.00"))
+    implementation("androidx.compose.material3:material3")
+
+    // Material Icons (filled, outlined, rounded, etc.)
+    implementation("androidx.compose.material:material-icons-extended:1.6.0")
+
 }

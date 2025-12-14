@@ -1,10 +1,14 @@
 package com.ca.continuousauth
 
 import android.content.Context
+import com.ca.continuousauth.authengine.AuthenticationManager
+import com.ca.continuousauth.authengine.EnrollmentManager
 import com.ca.continuousauth.authmodel.AuthModel
 import com.ca.continuousauth.config.AuthConfigManager
 import com.ca.continuousauth.featuremodalities.FeatureModel
+import com.ca.continuousauth.states.AuthVectorResult
 import com.ca.continuousauth.states.CollectionState
+import com.ca.continuousauth.states.EnrollmentResult
 import com.ca.continuousauth.utils.Logger
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -23,11 +27,15 @@ class ContinuousAuth(
     // Coroutine scope
     // -----------------------------
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+    private val authScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 
     // -----------------------------
-    // Collection state
+    // Stored files
     // -----------------------------
     private val stateFile = File(context.filesDir, "collect_state.json")
+    val checkpointFile = File(context.filesDir, "auth_model.chk")
+    val thresholdFile = File(context.filesDir, "auth_threshold.bin")
+    val storedVectorsFile = File(context.filesDir, "stored_vectors.bin")
 
     // -----------------------------
     // Core class objects
@@ -36,7 +44,7 @@ class ContinuousAuth(
     private val authModel = AuthModel(context)
 
     // -----------------------------
-    // Data collection & feature extraction states
+    // Data collection & feature extraction component states
     // -----------------------------
     private val _isCollecting = MutableStateFlow(false)
     val isCollecting: StateFlow<Boolean> = _isCollecting.asStateFlow()
@@ -51,18 +59,11 @@ class ContinuousAuth(
     private val collectedList = mutableListOf<List<Float>>()
 
     // -----------------------------
-    // Training state
+    // Auth model training and authetication states
     // -----------------------------
-    private val _isTraining = MutableStateFlow(false)
-    val isTraining: StateFlow<Boolean> = _isTraining.asStateFlow()
+    private val _isCheckpointExists = MutableStateFlow(checkpointFile.exists())
+    val isCheckpointExists: StateFlow<Boolean> = _isCheckpointExists.asStateFlow()
 
-    private val _trainingProgress = MutableStateFlow(0f)
-    val trainingProgress: StateFlow<Float> = _trainingProgress.asStateFlow()
-
-    private val _trainingStatus = MutableStateFlow("")
-    val trainingStatus: StateFlow<String> = _trainingStatus.asStateFlow()
-
-    private var trainingJob: Job? = null
 
     init {
         // Parameter validation
@@ -90,6 +91,7 @@ class ContinuousAuth(
                         _isPaused.value = true
                     }
                 }
+                updateProgress()
             }
             Logger.d("Resuming from saved state: remainingSamples=$remainingSamples, collected=${collectedList.size}")
         }
@@ -179,10 +181,6 @@ class ContinuousAuth(
         _progress.value = if (enrollmentSamples == 0) 0f else collectedList.size.toFloat() / enrollmentSamples
     }
 
-    fun getCollectedSampleCount(): Int {
-        return collectedList.size
-    }
-
     private fun saveCollectionState() {
         try {
             val jsonArray = JSONArray()
@@ -219,48 +217,93 @@ class ContinuousAuth(
         }
     }
 
-
-    // -----------------------------
-    // Training API
-    // -----------------------------
-    fun startTrainingModel(onComplete: (() -> Unit)? = null) {
-        if (_isTraining.value) return
-        if (collectedList.isEmpty()) {
-            _trainingStatus.value = "No samples to train"
-            onComplete?.invoke()
-            return
-        }
-
-        trainingJob = scope.launch {
-            _isTraining.value = true
-            _trainingProgress.value = 0f
-            _trainingStatus.value = "Training started..."
-
+    // --------------------------------------------------
+    // Public API: Start Enrollment
+    // --------------------------------------------------
+    fun startEnrollment(
+        thresholdFactor: Float = 2.0f,
+        onComplete: (EnrollmentResult) -> Unit
+    ) {
+        scope.launch {
             try {
-                authModel.runTrainingSession(collectedList)
-                _trainingStatus.value = "Training completed successfully"
-                Logger.d("Training completed successfully")
+                val enrollmentManager = EnrollmentManager(
+                    authModel = authModel,
+                    checkpointFile = checkpointFile,
+                    thresholdFile = thresholdFile
+                )
+                val result = enrollmentManager.enroll(collectedList, thresholdFactor)
+                _isCheckpointExists.value = checkpointFile.exists()
+                onComplete(result)
             } catch (e: Exception) {
-                _trainingStatus.value = "Training failed: ${e.message}"
-                Logger.e("Training failed: ${e.message}")
-            } finally {
-                _isTraining.value = false
-                onComplete?.invoke()
+                Logger.e("Enrollment exception: ${e.message}", e)
+                onComplete(
+                    EnrollmentResult(
+                        success = false,
+                        message = "Enrollment failed: ${e.message}"
+                    )
+                )
             }
         }
     }
 
-    fun getAllCollectedSamples(): List<List<Float>> {
-        return collectedList.toList()
+    // --------------------------------------------------
+    // Public API: Start Authentication
+    // --------------------------------------------------
+    fun startAuthentication(
+        onResult: (AuthVectorResult) -> Unit
+    ) {
+        try {
+            val authManager = AuthenticationManager(
+                context = context,
+                authModel = authModel,
+                checkpointFile = checkpointFile,
+                thresholdFile = thresholdFile,
+                storedVectorsFile = storedVectorsFile,
+                maxStoredVectors = AuthConfigManager.config.enrollmentSamples,
+                authenticationScope = scope
+            )
+
+            val flow = featureModel.getFeatureFlow(context)
+            authManager.startAuthentication(flow, onResult)
+
+        } catch (e: Exception) {
+            Logger.e("Failed to start authentication: ${e.message}", e)
+        }
     }
 
-
-    fun stopTraining() {
-        trainingJob?.cancel()
-        trainingJob = null
-        _isTraining.value = false
-        _trainingProgress.value = 0f
-        _trainingStatus.value = "Training cancelled"
-        Logger.d("Training stopped.")
+    // --------------------------------------------------
+    // Stop authentication
+    // --------------------------------------------------
+    fun stopAuthentication() {
+        scope.coroutineContext.cancelChildren()
+        Logger.d("Authentication stopped")
     }
+
+    fun clearEnrollmentFiles(): Boolean {
+        return try {
+            checkpointFile.takeIf { it.exists() }?.delete()
+            thresholdFile.takeIf { it.exists() }?.delete()
+            stopAuthentication()
+            _isCheckpointExists.value = checkpointFile.exists()
+            Logger.d("Enrollment files deleted successfully")
+            true
+        } catch (e: Exception) {
+            Logger.e("Failed to delete enrollment files", e)
+            false
+        }
+    }
+
+    fun refreshCheckpointState() {
+        _isCheckpointExists.value = checkpointFile.exists()
+    }
+
+    fun getThreshold(): Float? {
+        val enrollmentManager = EnrollmentManager(
+            authModel = authModel,
+            checkpointFile = checkpointFile,
+            thresholdFile = thresholdFile
+        )
+        return enrollmentManager.loadThreshold()
+    }
+
 }

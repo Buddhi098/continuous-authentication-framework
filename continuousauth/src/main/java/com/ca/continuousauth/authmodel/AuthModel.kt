@@ -22,21 +22,23 @@ import kotlin.random.Random
 class AuthModel(private val context: Context) {
 
     companion object {
-        private const val MODEL_FILENAME = "model.tflite" // Updated filename
+        private val MODEL_FILENAME = AuthConfigManager.config.modelFileName
         private var INPUT_DIM = AuthConfigManager.config.featureDimension
 
         // Signature Keys (Must match Python export)
-        private const val SIG_TRAIN = "train"
-        private const val SIG_INFER = "infer"
-        private const val SIG_INIT = "init_model" // Renamed from 'restore' in Python
-        private const val SIG_SAVE = "save"       // New
-        private const val SIG_RESTORE = "restore" // New
+        private val SIG_TRAIN = AuthConfigManager.config.sigTrain
+        private val SIG_INFER = AuthConfigManager.config.sigInfer
+        private val SIG_INIT = AuthConfigManager.config.sigInit
+        private val SIG_SAVE = AuthConfigManager.config.sigSave
+        private val SIG_RESTORE = AuthConfigManager.config.sigRestore
 
         // Tensor Names
-        private const val INPUT_KEY = "inputs"
-        private const val OUTPUT_RECONSTRUCTION = "reconstruction"
-        private const val OUTPUT_LOSS = "loss"
-        private const val OUTPUT_STATUS = "status"
+        private val INPUT_KEY = AuthConfigManager.config.inputKey
+        private val OUTPUT_RECONSTRUCTION = AuthConfigManager.config.outputReconstruction
+        private val OUTPUT_LOSS = AuthConfigManager.config.outputLoss
+        private val OUTPUT_STATUS = AuthConfigManager.config.outputStatus
+
+        private val RECONSTRUCTION_ERROR_KEY = "reconstruction_error"
     }
 
     private var interpreter: Interpreter? = null
@@ -312,23 +314,44 @@ class AuthModel(private val context: Context) {
             return null
         }
 
-        val inputBuffer = FloatBuffer.allocate(INPUT_DIM)
-        inputBuffer.put(featureVector.toFloatArray())
-        inputBuffer.rewind()
-
-        val outputBuffer = FloatBuffer.allocate(1) // Assuming your model outputs a single score
-        val inputs: MutableMap<String, Any> = hashMapOf(INPUT_KEY to inputBuffer)
-        val outputs: MutableMap<String, Any> = hashMapOf(OUTPUT_RECONSTRUCTION to outputBuffer) // Use your actual output key
-
         return try {
+            // --------------------------
+            // Prepare input buffer (batch size 1)
+            // --------------------------
+            val inputBuffer = FloatBuffer.allocate(1 * INPUT_DIM)
+            inputBuffer.put(featureVector.toFloatArray())
+            inputBuffer.rewind()
+
+            // --------------------------
+            // Prepare output buffers
+            // reconstruction_error is a scalar per sample (shape [1])
+            // --------------------------
+            val reconstructionErrorBuffer = FloatBuffer.allocate(1)
+            val reconstructionBuffer = FloatBuffer.allocate(INPUT_DIM) // optional if you need reconstructed vector
+
+            val inputs: MutableMap<String, Any> = hashMapOf(INPUT_KEY to inputBuffer)
+            val outputs: MutableMap<String, Any> = hashMapOf(
+                OUTPUT_RECONSTRUCTION to reconstructionBuffer,
+                RECONSTRUCTION_ERROR_KEY to reconstructionErrorBuffer // Use the same key as your Python signature
+            )
+
+            // --------------------------
+            // Run inference
+            // --------------------------
             interpreter.runSignature(inputs, outputs, SIG_INFER)
-            outputBuffer.rewind()
-            outputBuffer.get(0)
+
+            // --------------------------
+            // Get reconstruction error
+            // --------------------------
+            reconstructionErrorBuffer.rewind()
+            reconstructionErrorBuffer.get(0) // return scalar error
+
         } catch (e: Exception) {
-            Logger.e("Inference failed: ${e.message}")
+            Logger.e("Inference failed: ${e.message}", e)
             null
         }
     }
+
 
     /**
      * Deletes the checkpoint file from storage.

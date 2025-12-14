@@ -5,82 +5,79 @@ import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.*
-import androidx.compose.material3.Scaffold
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
-import com.ca.authframework.components.CollectionScreen
-import com.ca.authframework.components.TrainingScreen
-import com.ca.authframework.viewmodels.CollectionViewModel
-import com.ca.authframework.viewmodels.TrainingViewModel
-import com.ca.continuousauth.ContinuousAuth
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.navigation.compose.rememberNavController
+import com.ca.authframework.navigation.MainNavHost
+import com.ca.authframework.ui.AppTopBar
+import com.ca.authframework.ui.BottomNavigationBar
 import com.ca.authframework.ui.theme.AuthframeworkTheme
+import com.ca.authframework.viewmodels.AuthenticationViewModel
+import com.ca.authframework.viewmodels.EnrollmentViewModel
+import com.ca.continuousauth.ContinuousAuth
 
 class MainActivity : ComponentActivity() {
 
     companion object {
         private const val TAG = "CAFramework"
+        private const val TARGET_SAMPLES = 100
     }
 
-    // Target sample count
-    private val targetSamples: Int = 10
-
-    // Single ContinuousAuth instance
     private val continuousAuth by lazy {
         Log.d(TAG, "Initializing ContinuousAuth")
         ContinuousAuth(
-            context = this ,
-            enrollmentSamples = targetSamples ,
+            context = this,
+            enrollmentSamples = TARGET_SAMPLES,
             shouldLogFeatureVector = true,
             enableLog = true
-        )
-    }
-    // ViewModels
-    private val collectionViewModel by lazy {
-        Log.d(TAG, "Initializing CollectionViewModel")
-        CollectionViewModel(continuousAuth)
+        ).also { Log.d(TAG, "ContinuousAuth initialized.") }
     }
 
-    private val trainingViewModel by lazy {
-        Log.d(TAG, "Initializing TrainingViewModel")
-        TrainingViewModel(continuousAuth)
-    }
+    private val enrollmentViewModel by lazy { EnrollmentViewModel(this, continuousAuth) }
+    private val authenticationViewModel by lazy { AuthenticationViewModel(continuousAuth) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        Log.d(TAG, "onCreate() called")
-
         enableEdgeToEdge()
-        Log.d(TAG, "Edge-to-edge enabled")
+        enrollmentViewModel.resumeCollection()
+        authenticationViewModel.startAuthentication()
 
         setContent {
-            Log.d(TAG, "Setting Compose content")
-
             AuthframeworkTheme {
-                Scaffold(
-                    modifier = Modifier.fillMaxSize()
+                val navController = rememberNavController()
+                val lastAuthResult = authenticationViewModel.lastAuthResult
+                val isAuthRunning = authenticationViewModel.authenticationRunning
+
+                // Only show result if authentication has run
+                val currentAuthStatus = if (isAuthRunning && lastAuthResult != null) {
+                    if (lastAuthResult.isAuthenticated) "Authenticated" else "Rejected"
+                } else {
+                    "Unknown"
+                }
+
+                val currentScore = if (isAuthRunning && lastAuthResult != null) {
+                    "%.3f".format(lastAuthResult.score)
+                } else {
+                    "N/A"
+                }
+
+                androidx.compose.material3.Scaffold(
+                    topBar = { AppTopBar(status = currentAuthStatus, score = currentScore) },
+                    bottomBar = { BottomNavigationBar(navController) }
                 ) { innerPadding ->
-
-                    Log.d(TAG, "Scaffold composed")
-
-                    Column(
-                        modifier = Modifier
+                    Surface(
+                        modifier = androidx.compose.ui.Modifier
                             .fillMaxSize()
-                            .padding(innerPadding)
-                            .padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(24.dp)
+                            .padding(innerPadding),
+                        color = MaterialTheme.colorScheme.background
                     ) {
-
-                        Log.d(TAG, "Composing CollectionScreen")
-                        CollectionScreen(
-                            viewModel = collectionViewModel,
-                            targetSamples = targetSamples
-                        )
-
-                        Log.d(TAG, "Composing TrainingScreen")
-                        TrainingScreen(
-                            viewModel = trainingViewModel,
-                            targetSamples = targetSamples
+                        MainNavHost(
+                            navController = navController,
+                            enrollmentViewModel = enrollmentViewModel,
+                            authenticationViewModel = authenticationViewModel,
+                            targetSamples = TARGET_SAMPLES
                         )
                     }
                 }
@@ -90,13 +87,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onPause() {
         super.onPause()
-        Log.d(TAG, "onPause() called → Pausing collection")
-        collectionViewModel.pauseCollection()
+        enrollmentViewModel.pauseCollection()
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        Log.d(TAG, "onDestroy() called → Cleaning up resources")
-        collectionViewModel.pauseCollection()
+        enrollmentViewModel.pauseCollection()
     }
 }

@@ -51,8 +51,7 @@ dependencies {
 
     // Standard TFLite library
     implementation("org.tensorflow:tensorflow-lite:2.14.0")
-// REQUIRED: Support for training ops (Select TF Ops)
+    // REQUIRED: Support for training ops (Select TF Ops)
     implementation("org.tensorflow:tensorflow-lite-select-tf-ops:2.14.0")
-
 
 }
