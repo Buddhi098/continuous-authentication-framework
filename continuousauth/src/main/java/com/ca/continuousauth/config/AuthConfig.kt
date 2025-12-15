@@ -1,5 +1,7 @@
 package com.ca.continuousauth.config
 
+import android.R
+
 @ConsistentCopyVisibility
 data class AuthConfig private constructor(
 
@@ -32,6 +34,7 @@ data class AuthConfig private constructor(
     val outputReconstruction: String,
     val outputLoss: String,
     val outputStatus: String,
+    val outputReconstructionError: String,
 
     /* ------------------------------------------------------------------
      * 3. System Settings
@@ -76,6 +79,8 @@ data class AuthConfig private constructor(
         private var outputReconstruction: String = "reconstruction"
         private var outputLoss: String = "loss"
         private var outputStatus: String = "status"
+        private var outputReconstructionError: String = "reconstruction_error"
+
 
         /* System */
         private var enableLogging: Boolean = true
@@ -103,6 +108,7 @@ data class AuthConfig private constructor(
         fun outputReconstruction(value: String) = apply { outputReconstruction = value }
         fun outputLoss(value: String) = apply { outputLoss = value }
         fun outputStatus(value: String) = apply { outputStatus = value }
+        fun outputReconstructionError(value: String) = apply { outputReconstructionError = value }
 
         fun enableLogging(value: Boolean) = apply { enableLogging = value }
 
@@ -126,7 +132,8 @@ data class AuthConfig private constructor(
                 inputKey = inputKey,
                 outputReconstruction = outputReconstruction,
                 outputLoss = outputLoss,
-                outputStatus = outputStatus
+                outputStatus = outputStatus,
+                outputReconstructionError = outputReconstructionError
             )
     }
 

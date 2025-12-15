@@ -37,8 +37,7 @@ class AuthModel(private val context: Context) {
         private val OUTPUT_RECONSTRUCTION = AuthConfigManager.config.outputReconstruction
         private val OUTPUT_LOSS = AuthConfigManager.config.outputLoss
         private val OUTPUT_STATUS = AuthConfigManager.config.outputStatus
-
-        private val RECONSTRUCTION_ERROR_KEY = "reconstruction_error"
+        private val RECONSTRUCTION_ERROR_KEY = AuthConfigManager.config.outputReconstructionError
     }
 
     private var interpreter: Interpreter? = null

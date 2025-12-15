@@ -67,7 +67,6 @@ class AuthenticationManager(
         }
 
         return AuthVectorResult(
-            featureVector = featureVector,
             isAuthenticated = isAuthenticated,
             score = score,
             threshold = threshold

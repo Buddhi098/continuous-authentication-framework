@@ -88,10 +88,12 @@ class MainActivity : ComponentActivity() {
     override fun onPause() {
         super.onPause()
         enrollmentViewModel.pauseCollection()
+        authenticationViewModel.stopAuthentication()
     }
 
     override fun onDestroy() {
         super.onDestroy()
         enrollmentViewModel.pauseCollection()
+        authenticationViewModel.stopAuthentication()
     }
 }
