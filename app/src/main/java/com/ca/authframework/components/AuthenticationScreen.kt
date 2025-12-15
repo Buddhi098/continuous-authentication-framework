@@ -20,9 +20,9 @@ fun AuthenticationScreen(
     // Collect ViewModel state
     // -----------------------------
     val isCheckpointExists by viewModel.isCheckpointExists.collectAsState()
-    val isRunning = viewModel.authenticationRunning
-    val lastAuthResult = viewModel.lastAuthResult
-    val errorMessage = viewModel.errorMessage
+    val isRunning by viewModel::authenticationRunning
+    val lastAuthResult by viewModel::lastAuthResult
+//    val errorMessage by viewModel::errorMessage
 
     Column(
         modifier = Modifier
