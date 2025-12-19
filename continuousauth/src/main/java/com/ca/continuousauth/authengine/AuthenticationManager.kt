@@ -7,7 +7,6 @@ import com.ca.continuousauth.utils.Logger
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.Flow
 import java.io.*
-
 class AuthenticationManager(
     private val context: Context,
     private val authModel: AuthModel,
@@ -22,6 +21,10 @@ class AuthenticationManager(
 
     private var cachedThreshold: Float? = null
     private var isModelLoaded: Boolean = false
+
+    // Counters for percentage calculation
+    private var totalAuthentications: Int = 0
+    private var successfulAuthentications: Int = 0
 
     init {
         Logger.d("AuthenticationManager initializing")
@@ -57,19 +60,30 @@ class AuthenticationManager(
 
         val isAuthenticated = score <= threshold
 
-        Logger.d(
-            "Authentication result -> " +
-                    "score=$score, threshold=$threshold, authenticated=$isAuthenticated"
-        )
-
+        // Update counters
+        totalAuthentications++
         if (isAuthenticated) {
+            successfulAuthentications++
             storeAuthenticatedVector(featureVector)
         }
+
+        val authPercentage =
+            if (totalAuthentications > 0)
+                (successfulAuthentications.toFloat() / totalAuthentications) * 100f
+            else
+                null
+
+        Logger.d(
+            "Authentication result -> " +
+                    "score=$score, threshold=$threshold, authenticated=$isAuthenticated, " +
+                    "authPercentage=$authPercentage"
+        )
 
         return AuthVectorResult(
             isAuthenticated = isAuthenticated,
             score = score,
-            threshold = threshold
+            threshold = threshold,
+            authPercentage = authPercentage
         )
     }
 
@@ -151,8 +165,7 @@ class AuthenticationManager(
             authenticatedVectors.add(vector)
 
             if (authenticatedVectors.size > maxStoredVectors) {
-                val removed =
-                    authenticatedVectors.size - maxStoredVectors
+                val removed = authenticatedVectors.size - maxStoredVectors
                 repeat(removed) { authenticatedVectors.removeAt(0) }
                 Logger.d("Trimmed authenticated vectors, removed=$removed")
             }
@@ -183,7 +196,6 @@ class AuthenticationManager(
             return
         }
 
-        // Handle empty file safely
         if (storedVectorsFile.length() == 0L) {
             Logger.d("Stored vectors file is empty. Deleting file.")
             storedVectorsFile.delete()
@@ -208,26 +220,15 @@ class AuthenticationManager(
             }
 
         } catch (e: EOFException) {
-            // Most common corruption case
-            Logger.e(
-                "Stored vectors file corrupted or incomplete (EOF). Deleting file.",
-                e
-            )
+            Logger.e("Stored vectors file corrupted or incomplete (EOF). Deleting file.", e)
             storedVectorsFile.delete()
 
         } catch (e: InvalidClassException) {
-            // Happens when object structure changes
-            Logger.e(
-                "Stored vectors incompatible with current app version. Deleting file.",
-                e
-            )
+            Logger.e("Stored vectors incompatible with current app version. Deleting file.", e)
             storedVectorsFile.delete()
 
         } catch (e: Exception) {
-            Logger.e(
-                "Unexpected error while loading stored vectors. Deleting file.",
-                e
-            )
+            Logger.e("Unexpected error while loading stored vectors. Deleting file.", e)
             storedVectorsFile.delete()
         }
     }
@@ -243,5 +244,17 @@ class AuthenticationManager(
     fun getCachedThreshold(): Float? {
         Logger.d("Returning cached threshold: $cachedThreshold")
         return cachedThreshold
+    }
+
+    fun resetAuthenticationCounters() {
+        Logger.d("Resetting authentication counters")
+        totalAuthentications = 0
+        successfulAuthentications = 0
+    }
+
+    fun getAuthenticationPercentage(): Float? {
+        return if (totalAuthentications > 0)
+            (successfulAuthentications.toFloat() / totalAuthentications) * 100f
+        else null
     }
 }

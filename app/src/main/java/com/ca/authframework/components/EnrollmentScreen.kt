@@ -113,7 +113,7 @@ fun EnrollmentScreen(
 
             if (!isCollecting && !isPaused && !isCompleted) {
                 Button(
-                    onClick = { viewModel.startCollection(targetSamples) },
+                    onClick = { viewModel.startCollection() },
                     modifier = Modifier.weight(1f)
                 ) {
                     Text("Start")
@@ -174,7 +174,7 @@ fun EnrollmentScreen(
                 TextButton(
                     onClick = {
                         showClearDialog = false
-                        viewModel.clearCollection()
+                        viewModel.clearAll()
                     }
                 ) {
                     Text("Clear", color = Color.Red)

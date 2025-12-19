@@ -18,6 +18,7 @@ import com.ca.continuousauth.featuremodalities.rawdatacollectors.AccelerometerDa
 import com.ca.continuousauth.featuremodalities.rawdatacollectors.GyroscopeDataCollector
 import com.ca.continuousauth.featuremodalities.rawdatacollectors.MagnetometerDataCollector
 import com.ca.continuousauth.featuremodalities.rawdatacollectors.TouchDataCollector
+import com.ca.continuousauth.states.TouchEventData
 import com.ca.continuousauth.utils.Logger
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -27,7 +28,7 @@ import kotlinx.coroutines.flow.*
  * Full pipeline to collect accelerometer features as a Flow.
  */
 fun collectTouchDynamicFeature(
-    context: Context,
+    touchEventFlow : Flow<TouchEventData>?,
     dispatcher: CoroutineDispatcher = Dispatchers.Default
 ): Flow<List<Float>> {
 
@@ -38,16 +39,8 @@ fun collectTouchDynamicFeature(
     val normalizers: List<SensorNormalizer> = listOf(MinMaxNormalizer())
     val featureExtractors: List<FeatureExtractor> = listOf(StatisticalFeatureExtractor())
 
-    val rootView: View? = (context as? Activity)?.window?.decorView?.rootView
-
-    if (rootView == null) {
-        Logger.e("Cannot initialize TouchDataCollector: root view is null")
-        // Return an empty flow instead of crashing
-        return flow<List<Float>> { } // Empty flow
-    }
-
     // Safe to use rootView here
-    val touchDataCollector = TouchDataCollector(rootView, sampleCollectionFrequency, dispatcher)
+    val touchDataCollector = TouchDataCollector(touchEventFlow , sampleCollectionFrequency)
 
     return touchDataCollector.start()
         .windowedFlow(windowSize, windowOverlap)

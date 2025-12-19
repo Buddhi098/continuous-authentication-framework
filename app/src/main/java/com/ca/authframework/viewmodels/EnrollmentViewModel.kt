@@ -1,182 +1,227 @@
 package com.ca.authframework.viewmodels
 
 import android.content.Context
+import android.os.Build
 import android.util.Log
+import androidx.annotation.RequiresApi
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.work.*
+import com.ca.authframework.service.EnrollmentForegroundService
+import com.ca.authframework.service.EnrollmentResultBus
 import com.ca.continuousauth.ContinuousAuth
-import com.ca.continuousauth.states.EnrollmentResult
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
-import java.util.concurrent.TimeUnit
 
 class EnrollmentViewModel(
     private val context: Context,
     private val auth: ContinuousAuth
 ) : ViewModel() {
 
-    // --- Exposed StateFlows ---
+    companion object {
+        private const val TAG = "CAFramework"
+    }
+
+    // ---- Exposed state ----
     val isCollecting: StateFlow<Boolean> = auth.isCollecting
     val progress: StateFlow<Float> = auth.progress
     val collectedSampleCount: StateFlow<Int> = auth.collectedSamplesCount
     val isPaused: StateFlow<Boolean> = auth.isPaused
 
     private val _statusMessage = MutableStateFlow("")
-    val statusMessage: StateFlow<String> get() = _statusMessage
+    val statusMessage: StateFlow<String> = _statusMessage.asStateFlow()
 
-    private val _threshold = MutableStateFlow<Float>(0f)
-    val threshold: StateFlow<Float> get() = _threshold
+    private val _threshold = MutableStateFlow(0f)
+    val threshold: StateFlow<Float> = _threshold.asStateFlow()
 
-    // --- Internal variables ---
     private var enrollmentTriggered = false
     private var progressJob: Job? = null
 
-    // --- Initialization ---
     init {
-        _threshold.value = auth.getThreshold() ?: 0f
-        if(_threshold.value  > 0f){
-            onEnrollmentCompleted()
+        try {
+            _threshold.value = auth.getThreshold() ?: 0f
+            Log.d(TAG, "Loaded threshold: ${_threshold.value}")
+
+            if (_threshold.value > 0f) {
+                onEnrollmentCompleted()
+            }
+
+            observeEnrollmentResults()
+        } catch (e: Exception) {
+            Log.e(TAG, "Initialization failed", e)
+            _statusMessage.value = "Initialization error"
         }
     }
 
-    // --- Collection APIs ---
-    fun startCollection(targetSamples: Int) {
-        auth.startCollecting()
-        resetEnrollmentTrigger()
-        observeProgress()
+    // ---- Collection control ----
+
+    @RequiresApi(Build.VERSION_CODES.O)
+    fun startCollection() {
+        try {
+            Log.d(TAG, "Starting collection")
+            auth.startCollecting()
+            resetTrigger()
+            observeProgress()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start collection", e)
+            _statusMessage.value = "Failed to start collection"
+        }
     }
 
     fun pauseCollection() {
-        if (progress.value >= 1f) return
-        auth.pauseCollecting()
-        progressJob?.cancel()
+        try {
+            Log.d(TAG, "Pausing collection")
+            auth.pauseCollecting()
+            progressJob?.cancel()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to pause collection", e)
+            _statusMessage.value = "Failed to pause collection"
+        }
     }
 
+    @RequiresApi(Build.VERSION_CODES.O)
     fun resumeCollection() {
-        if (progress.value >= 1f) return
-        auth.resumeCollecting()
-        resetEnrollmentTrigger()
-        observeProgress()
+        try {
+            Log.d(TAG, "Resuming collection")
+            auth.resumeCollecting()
+            resetTrigger()
+            observeProgress()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to resume collection", e)
+            _statusMessage.value = "Failed to resume collection"
+        }
+    }
+
+    fun clearAll() {
+        try {
+            Log.d(TAG, "Clearing collection and enrollment files")
+            auth.clearCollection()
+            auth.clearEnrollmentFiles()
+            _statusMessage.value = ""
+            enrollmentTriggered = false
+            progressJob?.cancel()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to clear all data", e)
+            _statusMessage.value = "Failed to clear data"
+        }
     }
 
     fun clearCollection() {
-        auth.clearCollection()
-        auth.clearEnrollmentFiles()
-        _statusMessage.value = ""
-        progressJob?.cancel()
-        enrollmentTriggered = false
+        try {
+            Log.d(TAG, "Clearing collection")
+            auth.clearCollection()
+            _statusMessage.value = ""
+            enrollmentTriggered = false
+            progressJob?.cancel()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to clear collection", e)
+            _statusMessage.value = "Failed to clear collection"
+        }
     }
 
-    // --- Progress Observation & Enrollment Trigger ---
-    private fun resetEnrollmentTrigger() {
+    fun clearEnrollmentFiles() {
+        try {
+            Log.d(TAG, "Clearing enrollment files")
+            auth.clearEnrollmentFiles()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to clear enrollment files", e)
+            _statusMessage.value = "Failed to clear enrollment files"
+        }
+    }
+
+    // ---- Progress monitoring ----
+
+    private fun resetTrigger() {
         enrollmentTriggered = false
         progressJob?.cancel()
     }
 
+    @RequiresApi(Build.VERSION_CODES.O)
     private fun observeProgress() {
         progressJob = viewModelScope.launch {
-            progress.collectLatest { p ->
-                if (!enrollmentTriggered && p >= 1f) {
-                    enrollmentTriggered = true
-                    enqueueEnrollmentWork()
+            try {
+                progress.collectLatest { p ->
+                    if (!enrollmentTriggered && p >= 1f) {
+                        Log.d(TAG, "Progress reached 100%, triggering enrollment")
+                        enrollmentTriggered = true
+                        startEnrollmentService()
+                    }
                 }
+            } catch (e: Exception) {
+                Log.e(TAG, "Progress observation failed", e)
             }
         }
     }
 
-    // --- Status updates ---
+    // ---- Enrollment ----
+
+    @RequiresApi(Build.VERSION_CODES.O)
+    private fun startEnrollmentService() {
+        try {
+            Log.d(TAG, "Starting enrollment foreground service")
+            onEnrollmentStarted()
+
+            EnrollmentForegroundService.start(
+                context = context,
+                checkpointPath = auth.checkpointFile.absolutePath,
+                thresholdPath = auth.thresholdFile.absolutePath
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start enrollment service", e)
+            onEnrollmentFailed()
+        }
+    }
+
+    private fun observeEnrollmentResults() {
+        viewModelScope.launch {
+            try {
+                EnrollmentResultBus.results.collect { result ->
+                    if (result.success) {
+                        val newThreshold = result.threshold
+                        if (newThreshold != null) {
+                            Log.d(TAG, "Enrollment succeeded. Threshold=$newThreshold")
+                            _threshold.value = newThreshold
+                            onEnrollmentCompleted()
+                        } else {
+                            Log.e(TAG, "Enrollment success but threshold is null")
+                            onEnrollmentFailed()
+                        }
+                    } else {
+                        Log.e(TAG, "Enrollment failed: ${result}")
+                        onEnrollmentFailed()
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error collecting enrollment results", e)
+                onEnrollmentFailed()
+            }
+        }
+    }
+
+    // ---- UI messages ----
+
     private fun onEnrollmentStarted() {
-        _statusMessage.value = "Training model..."
+        _statusMessage.value = "Training model…"
     }
 
     private fun onEnrollmentCompleted() {
-        _statusMessage.value = "Model trained. Threshold: ${"%.2f".format(_threshold.value)}"
-        auth.refreshCheckpointState()
+        _statusMessage.value =
+            "Model trained. Threshold: ${"%.2f".format(_threshold.value)}"
+
+        try {
+            auth.refreshCheckpointState()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to refresh checkpoint state", e)
+        }
     }
 
     private fun onEnrollmentFailed() {
         _statusMessage.value = "Model training failed. Please try again."
     }
 
-    // --- WorkManager enrollment ---
-    private fun enqueueEnrollmentWork() {
-        val workManager = WorkManager.getInstance(context)
-
-        val workRequest = OneTimeWorkRequestBuilder<EnrollmentWorker>()
-            .setInputData(
-                workDataOf(
-                    "checkpointFile" to auth.checkpointFile.absolutePath,
-                    "thresholdFile" to auth.thresholdFile.absolutePath
-                )
-            )
-            .setBackoffCriteria(BackoffPolicy.LINEAR, 10, TimeUnit.SECONDS)
-            .build()
-
-        onEnrollmentStarted()
-
-        workManager.enqueueUniqueWork(
-            "enrollment_work",
-            ExistingWorkPolicy.KEEP,
-            workRequest
-        )
-
-        workManager.getWorkInfoByIdLiveData(workRequest.id)
-            .observeForever { workInfo ->
-                workInfo?.let {
-                    when (it.state) {
-                        WorkInfo.State.SUCCEEDED -> {
-                            val newThreshold = it.outputData.getFloat("threshold", 0f)
-                            _threshold.value = newThreshold
-                            onEnrollmentCompleted()
-                        }
-                        WorkInfo.State.FAILED -> onEnrollmentFailed()
-                        else -> {}
-                    }
-                }
-            }
-    }
-
-    // --- Worker class ---
-    class EnrollmentWorker(
-        context: Context,
-        workerParams: WorkerParameters
-    ) : CoroutineWorker(context, workerParams) {
-
-        override suspend fun doWork(): Result {
-            return try {
-                val checkpointPath = inputData.getString("checkpointFile")
-                    ?: return Result.failure()
-                val thresholdPath = inputData.getString("thresholdFile")
-                    ?: return Result.failure()
-
-                val auth = ContinuousAuth(applicationContext)
-
-                if (auth.collectedSamplesCount.value == 0) return Result.failure()
-
-                val enrollmentResult = suspendEnrollment(auth)
-
-                if (enrollmentResult.success) {
-                    val output = workDataOf("threshold" to enrollmentResult.threshold)
-                    Result.success(output)
-                } else {
-                    Result.failure()
-                }
-
-            } catch (e: Exception) {
-                Log.e("EnrollmentWorker", "Enrollment failed: ${e.message}")
-                Result.retry()
-            }
-        }
-
-        private suspend fun suspendEnrollment(auth: ContinuousAuth): EnrollmentResult {
-            val deferred = CompletableDeferred<EnrollmentResult>()
-            auth.startEnrollment { result ->
-                deferred.complete(result)
-            }
-            return deferred.await()
-        }
+    override fun onCleared() {
+        super.onCleared()
+        Log.d(TAG, "ViewModel cleared")
+        progressJob?.cancel()
     }
 }

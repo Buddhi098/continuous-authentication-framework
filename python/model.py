@@ -19,7 +19,7 @@ ASSETS_DIR.mkdir(parents=True, exist_ok=True)
 EXPORT_PATH = PROJECT_ROOT / "python" / "saved_autoencoder"
 TFLITE_FILE_PATH = ASSETS_DIR / "model.tflite"
 
-INPUT_DIM = 84
+INPUT_DIM = 96
 LATENT_DIM = 32
 BATCH_SIZE = 32
 
@@ -27,7 +27,7 @@ BATCH_SIZE = 32
 # 1. High-Accuracy Autoencoder Definition
 # -------------------------------------------------------------------------
 class SensorAutoencoder(tf.keras.Model):
-    def __init__(self, input_dim=128, latent_dim=32):
+    def __init__(self, input_dim=96, latent_dim=32):
         super(SensorAutoencoder, self).__init__()
         self.input_dim = input_dim
         self.latent_dim = latent_dim

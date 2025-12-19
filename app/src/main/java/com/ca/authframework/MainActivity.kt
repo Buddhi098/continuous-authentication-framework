@@ -1,14 +1,23 @@
 package com.ca.authframework
 
+import android.Manifest
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
-import android.util.Log
+import android.view.MotionEvent
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.core.content.ContextCompat
 import androidx.navigation.compose.rememberNavController
 import com.ca.authframework.navigation.MainNavHost
 import com.ca.authframework.ui.AppTopBar
@@ -17,32 +26,66 @@ import com.ca.authframework.ui.theme.AuthframeworkTheme
 import com.ca.authframework.viewmodels.AuthenticationViewModel
 import com.ca.authframework.viewmodels.EnrollmentViewModel
 import com.ca.continuousauth.ContinuousAuth
+import com.ca.continuousauth.states.TouchEventData
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.launch
+
+object ContinuousAuthManager {
+    lateinit var continuousAuth: ContinuousAuth
+}
 
 class MainActivity : ComponentActivity() {
 
     companion object {
         private const val TAG = "CAFramework"
-        private const val TARGET_SAMPLES = 100
+        private const val TARGET_SAMPLES = 1000
     }
-
-    private val continuousAuth by lazy {
-        Log.d(TAG, "Initializing ContinuousAuth")
-        ContinuousAuth(
-            context = this,
-            enrollmentSamples = TARGET_SAMPLES,
-            shouldLogFeatureVector = true,
-            enableLog = true
-        ).also { Log.d(TAG, "ContinuousAuth initialized.") }
-    }
-
-    private val enrollmentViewModel by lazy { EnrollmentViewModel(this, continuousAuth) }
-    private val authenticationViewModel by lazy { AuthenticationViewModel(continuousAuth) }
+    /* ---------------------------------------------------------------------- */
+    /*                        TOUCH EVENT STREAM                               */
+    /* ---------------------------------------------------------------------- */
+    private val touchEventFlow = MutableSharedFlow<TouchEventData>(
+        replay = 0,
+        extraBufferCapacity = 256
+    )
+    private val serviceScope = CoroutineScope(
+        SupervisorJob() + Dispatchers.IO
+    )
+    private lateinit var enrollmentViewModel: EnrollmentViewModel
+    private lateinit var authenticationViewModel: AuthenticationViewModel
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        enrollmentViewModel.resumeCollection()
-        authenticationViewModel.startAuthentication()
+
+        /* ------------------------------------------------------------------ */
+        /*                   INITIALIZE CONTINUOUS AUTH                        */
+        /* ------------------------------------------------------------------ */
+        serviceScope.launch {
+            ContinuousAuthManager.continuousAuth = ContinuousAuth(
+                context = applicationContext,
+                touchEventFlow = touchEventFlow.asSharedFlow(),
+                enrollmentSamples = TARGET_SAMPLES,
+                shouldLogFeatureVector = true,
+                enableLog = true
+            )
+
+            enrollmentViewModel = EnrollmentViewModel(applicationContext, ContinuousAuthManager.continuousAuth)
+            authenticationViewModel = AuthenticationViewModel(ContinuousAuthManager.continuousAuth)
+
+            if (authenticationViewModel.isCheckpointExists.value) {
+                authenticationViewModel.startAuthentication()
+            }
+
+            if (enrollmentViewModel.isPaused.value) {
+                authenticationViewModel.stopAuthentication()
+                enrollmentViewModel.clearEnrollmentFiles()
+                enrollmentViewModel.resumeCollection()
+            }
+        }
 
         setContent {
             AuthframeworkTheme {
@@ -50,21 +93,23 @@ class MainActivity : ComponentActivity() {
                 val lastAuthResult = authenticationViewModel.lastAuthResult
                 val isAuthRunning = authenticationViewModel.authenticationRunning
 
-                // Only show result if authentication has run
-                val currentAuthStatus = if (isAuthRunning && lastAuthResult != null) {
-                    if (lastAuthResult.isAuthenticated) "Authenticated" else "Rejected"
-                } else {
-                    "Unknown"
-                }
+                val currentAuthStatus =
+                    if (isAuthRunning && lastAuthResult != null) {
+                        if (lastAuthResult.isAuthenticated) "Authenticated" else "Rejected"
+                    } else "Unknown"
 
-                val currentScore = if (isAuthRunning && lastAuthResult != null) {
-                    "%.3f".format(lastAuthResult.score)
-                } else {
-                    "N/A"
-                }
+                val currentScore =
+                    if (isAuthRunning && lastAuthResult != null) {
+                        "%.3f".format(lastAuthResult.score)
+                    } else "N/A"
 
-                androidx.compose.material3.Scaffold(
-                    topBar = { AppTopBar(status = currentAuthStatus, score = currentScore) },
+                val currentAuthPercentage =
+                    if (isAuthRunning && lastAuthResult?.authPercentage != null) {
+                        "%.2f%%".format(lastAuthResult.authPercentage)
+                    } else "N/A"
+
+                Scaffold(
+                    topBar = { AppTopBar(status = currentAuthStatus, score = currentScore , currentAuthPercentage = currentAuthPercentage) },
                     bottomBar = { BottomNavigationBar(navController) }
                 ) { innerPadding ->
                     Surface(
@@ -85,6 +130,28 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /* ---------------------------------------------------------------------- */
+    /*                  GLOBAL TOUCH INTERCEPTION                              */
+    /* ---------------------------------------------------------------------- */
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+
+        val touchData = TouchEventData(
+            action = event.actionMasked,
+            timestamp = event.eventTime,
+            x = event.x,
+            y = event.y,
+            pressure = event.pressure,
+            size = event.size,
+            orientation = event.orientation,
+            touchMajor = event.touchMajor,
+            touchMinor = event.touchMinor,
+            pointerCount = event.pointerCount
+        )
+
+        touchEventFlow.tryEmit(touchData)
+        return super.dispatchTouchEvent(event)
+    }
+
     override fun onPause() {
         super.onPause()
         enrollmentViewModel.pauseCollection()
@@ -96,4 +163,5 @@ class MainActivity : ComponentActivity() {
         enrollmentViewModel.pauseCollection()
         authenticationViewModel.stopAuthentication()
     }
+
 }

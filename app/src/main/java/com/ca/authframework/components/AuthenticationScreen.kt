@@ -105,10 +105,21 @@ fun AuthenticationScreen(
                             )
 
                             Text(
-                                text = "Score: ${result.score?.let { String.format("%.2f", it) } ?: "N/A"} | Threshold: ${result.threshold?.let { String.format("%.2f", it) } ?: "N/A"}",
+                                text = "Score: ${String.format("%.3f", result.score)} | Threshold: ${String.format("%.3f", result.threshold)}",
                                 color = color,
                                 style = MaterialTheme.typography.bodyMedium
                             )
+
+                            // -----------------------------
+                            // Display authentication percentage
+                            // -----------------------------
+                            result.authPercentage?.let { percentage ->
+                                Text(
+                                    text = "Success Percentage: ${String.format("%.2f", percentage)}%",
+                                    color = Color(0xFF2196F3),
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                            }
                         }
                     }
                 }

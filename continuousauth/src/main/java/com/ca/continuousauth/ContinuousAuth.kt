@@ -1,6 +1,7 @@
 package com.ca.continuousauth
 
 import android.content.Context
+import android.view.View
 import com.ca.continuousauth.authengine.AuthenticationManager
 import com.ca.continuousauth.authengine.EnrollmentManager
 import com.ca.continuousauth.authmodel.AuthModel
@@ -9,6 +10,7 @@ import com.ca.continuousauth.featuremodalities.FeatureModel
 import com.ca.continuousauth.states.AuthVectorResult
 import com.ca.continuousauth.states.CollectionState
 import com.ca.continuousauth.states.EnrollmentResult
+import com.ca.continuousauth.states.TouchEventData
 import com.ca.continuousauth.utils.Logger
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -18,7 +20,8 @@ import java.io.File
 
 class ContinuousAuth(
     private val context: Context,
-    private var enrollmentSamples: Int = AuthConfigManager.config.enrollmentSamples,
+    private var enrollmentSamples: Int,
+    private val touchEventFlow: Flow<TouchEventData>? = null,
     private val shouldLogFeatureVector: Boolean = AuthConfigManager.config.shouldLogFeatureVector,
     private val enableLog: Boolean = AuthConfigManager.config.enableLogging
 ) {
@@ -54,6 +57,9 @@ class ContinuousAuth(
     val collectedSamplesCount: StateFlow<Int> = _collectedSamplesCount.asStateFlow()
     private val _isPaused = MutableStateFlow(false)
     val isPaused: StateFlow<Boolean> = _isPaused.asStateFlow()
+
+    private val _isCollectionSaved = MutableStateFlow(false)
+    val isCollectionSaved: StateFlow<Boolean> = _isCollectionSaved.asStateFlow()
     private var collectJob: Job? = null
     private var remainingSamples : Int? = null
     private val collectedList = mutableListOf<List<Float>>()
@@ -80,19 +86,15 @@ class ContinuousAuth(
 
         // Load previous state if exists
         loadCollectionState()?.let { state ->
-            if(state.collectedList.size > enrollmentSamples){
-                clearCollection()
-            }else{
-                collectedList.addAll(state.collectedList)
-                _collectedSamplesCount.value = collectedList.size
-                remainingSamples = (enrollmentSamples - collectedList.size).coerceAtLeast(0)
-                remainingSamples?.let {
-                    if(it > 0){
-                        _isPaused.value = true
-                    }
+            collectedList.addAll(state.collectedList.take(enrollmentSamples))
+            _collectedSamplesCount.value = collectedList.size
+            remainingSamples = (enrollmentSamples - collectedList.size).coerceAtLeast(0)
+            remainingSamples?.let {
+                if(it > 0){
+                    _isPaused.value = true
                 }
-                updateProgress()
             }
+            updateProgress()
             Logger.d("Resuming from saved state: remainingSamples=$remainingSamples, collected=${collectedList.size}")
         }
     }
@@ -100,14 +102,15 @@ class ContinuousAuth(
     // -----------------------------
     // Collect training samples
     // -----------------------------
+
     fun startCollecting() {
-        if (_isCollecting.value || remainingSamples==0) return
+        if (_isCollecting.value || remainingSamples == 0) return
         Logger.d("remaining samples : $remainingSamples")
         _isCollecting.value = true
         _isPaused.value = false
         updateProgress()
 
-        val flow = featureModel.getFeatureFlow(context)
+        val flow = featureModel.getFeatureFlowAtFrequency(context, touchEventFlow)
 
         collectJob = scope.launch {
             try {
@@ -117,31 +120,36 @@ class ContinuousAuth(
                         return@collect
                     }
 
-                    collectedList.add(vector)
-                    _collectedSamplesCount.value = collectedList.size
-                    updateProgress()
-
-                    if (shouldLogFeatureVector){
-                        Logger.d("$vector")
-                        Logger.d("Collected sample ${collectedList.size}, dim:${vector.size}")
-                    }
-
+                    // --- Check before adding to prevent extra sample ---
                     if (collectedList.size >= enrollmentSamples) {
                         Logger.d("Training sample collection completed.")
                         _isCollecting.value = false
                         remainingSamples = 0
                         clearCollectionState()
                         saveCollectionState()
+                        updateProgress()
                         collectJob?.cancel()
+                        return@collect
+                    }else{
+                        // --- Add the sample only if below limit ---
+                        updateProgress()
+                        collectedList.add(vector)
+                        _collectedSamplesCount.value = collectedList.size
+                    }
+
+                    if (shouldLogFeatureVector) {
+                        Logger.d("$vector")
+                        Logger.d("Collected sample ${collectedList.size}, dim:${vector.size}")
                     }
                 }
             } catch (e: CancellationException) {
                 Logger.d("Collection job cancelled")
-            }  catch (e: Exception) {
+            } catch (e: Exception) {
                 Logger.e("Collection failed", e)
             }
         }
     }
+
 
     fun pauseCollecting() {
         if (!_isCollecting.value || _isPaused.value) return
@@ -259,11 +267,11 @@ class ContinuousAuth(
                 checkpointFile = checkpointFile,
                 thresholdFile = thresholdFile,
                 storedVectorsFile = storedVectorsFile,
-                maxStoredVectors = AuthConfigManager.config.enrollmentSamples,
-                authenticationScope = scope
+                maxStoredVectors = enrollmentSamples,
+                authenticationScope = authScope
             )
 
-            val flow = featureModel.getFeatureFlow(context)
+            val flow = featureModel.getFeatureFlowAtFrequency(context , touchEventFlow)
             authManager.startAuthentication(flow, onResult)
 
         } catch (e: Exception) {
@@ -275,7 +283,7 @@ class ContinuousAuth(
     // Stop authentication
     // --------------------------------------------------
     fun stopAuthentication() {
-        scope.coroutineContext.cancelChildren()
+        authScope.coroutineContext.cancelChildren()
         Logger.d("Authentication stopped")
     }
 

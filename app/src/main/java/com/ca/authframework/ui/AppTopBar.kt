@@ -10,7 +10,7 @@ import com.ca.authframework.components.StatusBadge
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AppTopBar(status: String, score: String) {
+fun AppTopBar(status: String, score: String , currentAuthPercentage: String) {
     CenterAlignedTopAppBar(
         title = {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -19,6 +19,7 @@ fun AppTopBar(status: String, score: String) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     StatusBadge("Status", status)
                     StatusBadge("Score", score)
+                    StatusBadge("AC" , currentAuthPercentage)
                 }
             }
         },
