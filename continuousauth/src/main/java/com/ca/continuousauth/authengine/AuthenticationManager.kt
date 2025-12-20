@@ -90,14 +90,13 @@ class AuthenticationManager(
     // --------------------------------------------------
     // Initialization helpers
     // --------------------------------------------------
-    private fun loadModel() {
+    fun loadModel() {
+        if(isModelLoaded) return
         Logger.d("Loading authentication model checkpoint")
-
         if (!checkpointFile.exists()) {
             Logger.e("Checkpoint file not found at ${checkpointFile.absolutePath}")
             return
         }
-
         isModelLoaded = authModel.loadCheckpoint(checkpointFile)
 
         if (isModelLoaded) {
@@ -107,7 +106,8 @@ class AuthenticationManager(
         }
     }
 
-    private fun loadThresholdOnce() {
+    fun loadThresholdOnce() {
+        if(cachedThreshold!=null) return
         Logger.d("Loading threshold value")
 
         cachedThreshold = try {

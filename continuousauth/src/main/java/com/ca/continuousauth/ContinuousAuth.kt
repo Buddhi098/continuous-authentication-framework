@@ -271,6 +271,8 @@ class ContinuousAuth(
         onResult: (AuthVectorResult) -> Unit
     ) {
         try {
+            authManager.loadModel()
+            authManager.loadThresholdOnce()
             // Get feature flow
             val featureFlow = featureModel.getFeatureFlowAtFrequency(context, touchEventFlow)
 
@@ -311,6 +313,7 @@ class ContinuousAuth(
     // --------------------------------------------------
     fun stopAuthentication() {
         authScope.coroutineContext.cancelChildren()
+        authManager.resetAuthenticationCounters()
         Logger.d("Authentication stopped")
     }
 
