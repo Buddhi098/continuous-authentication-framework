@@ -19,15 +19,16 @@ ASSETS_DIR.mkdir(parents=True, exist_ok=True)
 EXPORT_PATH = PROJECT_ROOT / "python" / "saved_autoencoder"
 TFLITE_FILE_PATH = ASSETS_DIR / "model.tflite"
 
-INPUT_DIM = 96
-LATENT_DIM = 32
+INPUT_DIM = 16
+LATENT_DIM = 64
 BATCH_SIZE = 32
+LOSS_ALPHA = 0.8 # for combined loss function
 
 # -------------------------------------------------------------------------
 # 1. High-Accuracy Autoencoder Definition
 # -------------------------------------------------------------------------
 class SensorAutoencoder(tf.keras.Model):
-    def __init__(self, input_dim=96, latent_dim=32):
+    def __init__(self, input_dim=INPUT_DIM, latent_dim=LATENT_DIM):
         super(SensorAutoencoder, self).__init__()
         self.input_dim = input_dim
         self.latent_dim = latent_dim
@@ -60,7 +61,7 @@ class SensorAutoencoder(tf.keras.Model):
 
         # Optimizer with learning rate schedule
         lr_schedule = tf.keras.optimizers.schedules.CosineDecay(
-            initial_learning_rate=0.001, decay_steps=1000, alpha=0.0
+            initial_learning_rate=0.01, decay_steps=1000, alpha=0.0
         )
         self.optimizer = tf.keras.optimizers.Adam(learning_rate=lr_schedule)
 
@@ -98,7 +99,7 @@ class SensorAutoencoder(tf.keras.Model):
             cos_loss = 1 - tf.reduce_mean(
                 tf.reduce_sum(tf.nn.l2_normalize(inputs, axis=1) * tf.nn.l2_normalize(predictions, axis=1), axis=1)
             )
-            loss = mse_loss + 0.1 * cos_loss  # Weighted sum
+            loss = LOSS_ALPHA * mse_loss + (1 - LOSS_ALPHA) * cos_loss  # Weighted sum
         gradients = tape.gradient(loss, self.trainable_variables)
         self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
         return {"loss": loss}
@@ -134,6 +135,12 @@ class SensorAutoencoder(tf.keras.Model):
 # 2. Main Pipeline for Saving + TFLite Conversion
 # -------------------------------------------------------------------------
 def main():
+
+    # Remove old models
+    if EXPORT_PATH.exists():
+        shutil.rmtree(EXPORT_PATH)
+    if TFLITE_FILE_PATH.exists():
+        TFLITE_FILE_PATH.unlink()
 
     autoencoder = SensorAutoencoder(input_dim=INPUT_DIM, latent_dim=LATENT_DIM)
     autoencoder.bake_weights()

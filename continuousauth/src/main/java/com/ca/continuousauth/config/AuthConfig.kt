@@ -65,7 +65,7 @@ data class AuthConfig private constructor(
         private var modelFileName: String = "model.tflite"
         private var trainingEpochs: Int = 100
         private var trainingBatchSize: Int = 32
-        private var featureDimension: Int = 96
+        private var featureDimension: Int = 16
 
         // New default signal values
         private var sigTrain: String = "train"

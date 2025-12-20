@@ -4,6 +4,9 @@ import android.content.Context
 import android.view.View
 import com.ca.continuousauth.config.AuthConfig
 import com.ca.continuousauth.config.AuthConfigManager
+import com.ca.continuousauth.featuremodalities.dataprocessing.scalers.MinMaxScaler
+import com.ca.continuousauth.featuremodalities.dataprocessing.scalers.Scaler
+import com.ca.continuousauth.featuremodalities.dataprocessing.scalers.StandardScaler
 import com.ca.continuousauth.featuremodalities.featurefusion.FusedFeatureBuilder2D
 import com.ca.continuousauth.featuremodalities.featurepipeline.collectProcessedAccelFeatures
 import com.ca.continuousauth.featuremodalities.featurepipeline.collectProcessedGyroFeatures
@@ -56,7 +59,6 @@ class FeatureModel {
         Logger.d("Output fused vector [0]= ${fusedVectors[0]}")
         return fusedVectors
     }
-
     /**
      * Returns a continuous Flow emitting fused feature vectors one by one.
      * This is ideal for real-time inference.
@@ -131,5 +133,20 @@ class FeatureModel {
             }
             .conflate() // prevent backlog if sensors are faster
     }
+
+    /**
+     * Apply fitTransform using the provided scaler.
+     */
+    fun applyFitTransform(scaler: Scaler, data: List<List<Float>>): List<List<Float>> {
+        return scaler.fitTransform(data)
+    }
+
+    /**
+     * Apply transform using an already fitted scaler.
+     */
+    fun applyTransform(scaler: Scaler, data: List<List<Float>>): List<List<Float>> {
+        return scaler.transform(data)
+    }
+
 
 }

@@ -8,6 +8,7 @@ import java.io.DataOutputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import kotlin.math.abs
 import kotlin.math.sqrt
 
 class EnrollmentManager(
@@ -27,7 +28,7 @@ class EnrollmentManager(
      */
     fun enroll(
         dataSet: List<List<Float>>,
-        thresholdFactor: Float = 2.0f
+        thresholdFactor: Float = 3.0f
     ): EnrollmentResult {
         try {
             if (dataSet.size < 10) {
@@ -91,32 +92,47 @@ class EnrollmentManager(
     // --------------------------------------------------
     // Threshold Calculation
     // --------------------------------------------------
-
     private fun calculateThreshold(
         validationSet: List<List<Float>>,
-        factor: Float
+        factor: Float = 3f,    // default scaling factor
+        usePercentile: Boolean = false,
+        percentile: Float = 0.95f
     ): Float? {
         return try {
-            val scores = validationSet.mapNotNull {
-                authModel.inferScore(it)
-            }
-
+            val scores = validationSet.mapNotNull { authModel.inferScore(it) }
             if (scores.isEmpty()) return null
 
-            val mean = scores.average().toFloat()
-            val variance = scores
-                .map { (it - mean) * (it - mean) }
-                .average()
-                .toFloat()
+            return if (usePercentile) {
+                // Percentile-based threshold
+                val sortedScores = scores.sorted()
+                val index = ((sortedScores.size - 1) * percentile).toInt()
+                sortedScores[index]
+            } else {
+                // Median + MAD threshold (robust)
+                val median = scores.sorted().let { sortedScores ->
+                    val mid = sortedScores.size / 2
+                    if (sortedScores.size % 2 == 0)
+                        (sortedScores[mid - 1] + sortedScores[mid]) / 2
+                    else
+                        sortedScores[mid]
+                }
 
-            val stdDev = sqrt(variance)
-            mean + factor * stdDev
+                val mad = scores.map { abs(it - median) }.sorted().let { absSorted ->
+                    val mid = absSorted.size / 2
+                    if (absSorted.size % 2 == 0)
+                        (absSorted[mid - 1] + absSorted[mid]) / 2
+                    else
+                        absSorted[mid]
+                }
 
+                median + factor * mad
+            }
         } catch (e: Exception) {
             Logger.e("Threshold calculation error: ${e.message}", e)
             null
         }
     }
+
 
     // --------------------------------------------------
     // Persistent Storage

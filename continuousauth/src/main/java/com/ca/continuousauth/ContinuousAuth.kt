@@ -7,6 +7,7 @@ import com.ca.continuousauth.authengine.EnrollmentManager
 import com.ca.continuousauth.authmodel.AuthModel
 import com.ca.continuousauth.config.AuthConfigManager
 import com.ca.continuousauth.featuremodalities.FeatureModel
+import com.ca.continuousauth.featuremodalities.dataprocessing.scalers.StandardScaler
 import com.ca.continuousauth.states.AuthVectorResult
 import com.ca.continuousauth.states.CollectionState
 import com.ca.continuousauth.states.EnrollmentResult
@@ -45,6 +46,20 @@ class ContinuousAuth(
     // -----------------------------
     private val featureModel = FeatureModel()
     private val authModel = AuthModel(context)
+    private val scaler = StandardScaler(context)
+    private  val authManager = AuthenticationManager(
+        context = context,
+        authModel = authModel,
+        checkpointFile = checkpointFile,
+        thresholdFile = thresholdFile,
+        storedVectorsFile = storedVectorsFile,
+        maxStoredVectors = enrollmentSamples
+    )
+    private val enrollmentManager = EnrollmentManager(
+        authModel = authModel,
+        checkpointFile = checkpointFile,
+        thresholdFile = thresholdFile
+        )
 
     // -----------------------------
     // Data collection & feature extraction component states
@@ -62,7 +77,7 @@ class ContinuousAuth(
     val isCollectionSaved: StateFlow<Boolean> = _isCollectionSaved.asStateFlow()
     private var collectJob: Job? = null
     private var remainingSamples : Int? = null
-    private val collectedList = mutableListOf<List<Float>>()
+    private var collectedList = mutableListOf<List<Float>>()
 
     // -----------------------------
     // Auth model training and authetication states
@@ -119,12 +134,12 @@ class ContinuousAuth(
                         saveCollectionState()
                         return@collect
                     }
-
                     // --- Check before adding to prevent extra sample ---
                     if (collectedList.size >= enrollmentSamples) {
                         Logger.d("Training sample collection completed.")
                         _isCollecting.value = false
                         remainingSamples = 0
+                        collectedList = featureModel.applyFitTransform(scaler , collectedList) as MutableList<List<Float>>
                         clearCollectionState()
                         saveCollectionState()
                         updateProgress()
@@ -229,16 +244,11 @@ class ContinuousAuth(
     // Public API: Start Enrollment
     // --------------------------------------------------
     fun startEnrollment(
-        thresholdFactor: Float = 2.0f,
+        thresholdFactor: Float = 3f,
         onComplete: (EnrollmentResult) -> Unit
     ) {
         scope.launch {
             try {
-                val enrollmentManager = EnrollmentManager(
-                    authModel = authModel,
-                    checkpointFile = checkpointFile,
-                    thresholdFile = thresholdFile
-                )
                 val result = enrollmentManager.enroll(collectedList, thresholdFactor)
                 _isCheckpointExists.value = checkpointFile.exists()
                 onComplete(result)
@@ -261,23 +271,40 @@ class ContinuousAuth(
         onResult: (AuthVectorResult) -> Unit
     ) {
         try {
-            val authManager = AuthenticationManager(
-                context = context,
-                authModel = authModel,
-                checkpointFile = checkpointFile,
-                thresholdFile = thresholdFile,
-                storedVectorsFile = storedVectorsFile,
-                maxStoredVectors = enrollmentSamples,
-                authenticationScope = authScope
-            )
+            // Get feature flow
+            val featureFlow = featureModel.getFeatureFlowAtFrequency(context, touchEventFlow)
 
-            val flow = featureModel.getFeatureFlowAtFrequency(context , touchEventFlow)
-            authManager.startAuthentication(flow, onResult)
+            // Launch a coroutine to collect the flow asynchronously
+            authScope.launch {
+                try {
+                    featureFlow.collect { vector ->
+                        try {
+                            // Convert 1D vector to 2D list with a single row
+                            val vector2D: List<List<Float>> = listOf(vector)
+                            val scaled2D: List<List<Float>> = featureModel.applyTransform(scaler, vector2D)
+                            val scaledVector = scaled2D.firstOrNull() ?: vector
+
+                            Logger.d("Received Scaled feature vector from flow: $scaledVector")
+
+                            val result = authManager.authenticateFeatureVector(scaledVector)
+                            onResult(result)
+
+                        } catch (e: Exception) {
+                            Logger.e("Error while authenticating feature vector: ${e.message}", e)
+                        }
+                    }
+                } catch (e: CancellationException) {
+                    Logger.d("Authentication flow cancelled")
+                } catch (e: Exception) {
+                    Logger.e("Authentication flow crashed: ${e.message}", e)
+                }
+            }
 
         } catch (e: Exception) {
             Logger.e("Failed to start authentication: ${e.message}", e)
         }
     }
+
 
     // --------------------------------------------------
     // Stop authentication
@@ -306,11 +333,6 @@ class ContinuousAuth(
     }
 
     fun getThreshold(): Float? {
-        val enrollmentManager = EnrollmentManager(
-            authModel = authModel,
-            checkpointFile = checkpointFile,
-            thresholdFile = thresholdFile
-        )
         return enrollmentManager.loadThreshold()
     }
 

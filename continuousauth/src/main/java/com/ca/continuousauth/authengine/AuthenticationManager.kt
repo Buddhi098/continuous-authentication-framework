@@ -2,6 +2,7 @@ package com.ca.continuousauth.authengine
 
 import android.content.Context
 import com.ca.continuousauth.authmodel.AuthModel
+import com.ca.continuousauth.featuremodalities.dataprocessing.scalers.Scaler
 import com.ca.continuousauth.states.AuthVectorResult
 import com.ca.continuousauth.utils.Logger
 import kotlinx.coroutines.*
@@ -13,8 +14,7 @@ class AuthenticationManager(
     private val checkpointFile: File,
     private val thresholdFile: File,
     private val storedVectorsFile: File,
-    private val maxStoredVectors: Int = 100,
-    private val authenticationScope: CoroutineScope
+    private val maxStoredVectors: Int = 100
 ) {
 
     private val authenticatedVectors = mutableListOf<List<Float>>()
@@ -85,36 +85,6 @@ class AuthenticationManager(
             threshold = threshold,
             authPercentage = authPercentage
         )
-    }
-
-    // --------------------------------------------------
-    // Flow-based authentication
-    // --------------------------------------------------
-    fun startAuthentication(
-        featureFlow: Flow<List<Float>>,
-        onResult: (AuthVectorResult) -> Unit
-    ) {
-        Logger.d("Starting authentication flow")
-
-        authenticationScope.launch(Dispatchers.Default) {
-            try {
-                featureFlow.collect { vector ->
-                    Logger.d("Received feature vector from flow")
-                    val result = authenticateFeatureVector(vector)
-                    onResult(result)
-                }
-            } catch (e: CancellationException) {
-                Logger.d("Authentication flow cancelled")
-            } catch (e: Exception) {
-                Logger.e("Authentication flow crashed: ${e.message}", e)
-                currentCoroutineContext().cancel()
-            }
-        }
-    }
-
-    fun stopAuthentication() {
-        Logger.d("Stopping authentication")
-        authenticationScope.coroutineContext.cancelChildren()
     }
 
     // --------------------------------------------------

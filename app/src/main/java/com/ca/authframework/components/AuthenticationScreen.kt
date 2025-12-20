@@ -115,7 +115,7 @@ fun AuthenticationScreen(
                             // -----------------------------
                             result.authPercentage?.let { percentage ->
                                 Text(
-                                    text = "Success Percentage: ${String.format("%.2f", percentage)}%",
+                                    text = "Authentication Confident: ${String.format("%.2f", percentage)}%",
                                     color = Color(0xFF2196F3),
                                     style = MaterialTheme.typography.bodyMedium
                                 )

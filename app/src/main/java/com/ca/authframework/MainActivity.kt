@@ -51,9 +51,6 @@ class MainActivity : ComponentActivity() {
         replay = 0,
         extraBufferCapacity = 256
     )
-    private val serviceScope = CoroutineScope(
-        SupervisorJob() + Dispatchers.IO
-    )
     private lateinit var enrollmentViewModel: EnrollmentViewModel
     private lateinit var authenticationViewModel: AuthenticationViewModel
 
@@ -64,27 +61,25 @@ class MainActivity : ComponentActivity() {
         /* ------------------------------------------------------------------ */
         /*                   INITIALIZE CONTINUOUS AUTH                        */
         /* ------------------------------------------------------------------ */
-        serviceScope.launch {
-            ContinuousAuthManager.continuousAuth = ContinuousAuth(
-                context = applicationContext,
-                touchEventFlow = touchEventFlow.asSharedFlow(),
-                enrollmentSamples = TARGET_SAMPLES,
-                shouldLogFeatureVector = true,
-                enableLog = true
-            )
+        ContinuousAuthManager.continuousAuth = ContinuousAuth(
+            context = applicationContext,
+            touchEventFlow = touchEventFlow.asSharedFlow(),
+            enrollmentSamples = TARGET_SAMPLES,
+            shouldLogFeatureVector = true,
+            enableLog = true
+        )
 
-            enrollmentViewModel = EnrollmentViewModel(applicationContext, ContinuousAuthManager.continuousAuth)
-            authenticationViewModel = AuthenticationViewModel(ContinuousAuthManager.continuousAuth)
+        enrollmentViewModel = EnrollmentViewModel(applicationContext, ContinuousAuthManager.continuousAuth)
+        authenticationViewModel = AuthenticationViewModel(ContinuousAuthManager.continuousAuth)
 
-            if (authenticationViewModel.isCheckpointExists.value) {
-                authenticationViewModel.startAuthentication()
-            }
+        if (authenticationViewModel.isCheckpointExists.value) {
+            authenticationViewModel.startAuthentication()
+        }
 
-            if (enrollmentViewModel.isPaused.value) {
-                authenticationViewModel.stopAuthentication()
-                enrollmentViewModel.clearEnrollmentFiles()
-                enrollmentViewModel.resumeCollection()
-            }
+        if (enrollmentViewModel.isPaused.value) {
+            authenticationViewModel.stopAuthentication()
+            enrollmentViewModel.clearEnrollmentFiles()
+            enrollmentViewModel.resumeCollection()
         }
 
         setContent {
