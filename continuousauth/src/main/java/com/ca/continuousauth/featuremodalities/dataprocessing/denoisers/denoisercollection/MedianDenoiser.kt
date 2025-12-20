@@ -3,7 +3,7 @@ package com.ca.continuousauth.featuremodalities.dataprocessing.denoisers.denoise
 import com.ca.continuousauth.featuremodalities.dataprocessing.denoisers.SensorDenoiser
 import com.ca.continuousauth.utils.Logger
 
-class MedianDenoiser(private val windowSize: Int = 3) : SensorDenoiser {
+class MedianDenoiser(private val windowSize: Int = 5) : SensorDenoiser {
 
     init { require(windowSize > 0) { "windowSize must be > 0" } }
 

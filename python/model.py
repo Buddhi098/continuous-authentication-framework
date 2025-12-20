@@ -19,10 +19,10 @@ ASSETS_DIR.mkdir(parents=True, exist_ok=True)
 EXPORT_PATH = PROJECT_ROOT / "python" / "saved_autoencoder"
 TFLITE_FILE_PATH = ASSETS_DIR / "model.tflite"
 
-INPUT_DIM = 16
+INPUT_DIM = 77
 LATENT_DIM = 64
 BATCH_SIZE = 32
-LOSS_ALPHA = 0.8 # for combined loss function
+LOSS_ALPHA = 0.9 # for combined loss function
 
 # -------------------------------------------------------------------------
 # 1. High-Accuracy Autoencoder Definition
@@ -61,8 +61,11 @@ class SensorAutoencoder(tf.keras.Model):
 
         # Optimizer with learning rate schedule
         lr_schedule = tf.keras.optimizers.schedules.CosineDecay(
-            initial_learning_rate=0.01, decay_steps=1000, alpha=0.0
+            initial_learning_rate=0.0005,
+            decay_steps=3000,
+            alpha=0.1
         )
+
         self.optimizer = tf.keras.optimizers.Adam(learning_rate=lr_schedule)
 
         # Storage for baked weights

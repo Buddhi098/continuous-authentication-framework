@@ -7,8 +7,10 @@ import com.ca.continuousauth.featuremodalities.dataprocessing.denoisers.denoiseP
 import com.ca.continuousauth.featuremodalities.dataprocessing.denoisers.denoisercollection.LowPassFilterDenoiser
 import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.FeatureExtractor
 import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.featurePipeline
+import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.featureextractorcollection.FrequencyDomainFeatureExtractor
 import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.featureextractorcollection.MagnetometerFeatureExtractor
 import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.featureextractorcollection.MeanFeatureExtractor
+import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.featureextractorcollection.TimeDomainFeatureExtractor
 import com.ca.continuousauth.featuremodalities.dataprocessing.windowing.windowedFlow
 import com.ca.continuousauth.featuremodalities.rawdatacollectors.MagnetometerDataCollector
 import com.ca.continuousauth.utils.Logger
@@ -28,7 +30,7 @@ fun collectProcessedMagnoFeatures(
     val windowSize: Int = AuthConfigManager.config.windowSize
     val windowOverlap: Double = AuthConfigManager.config.windowOverlapRatio
     val denoisers: List<SensorDenoiser> = listOf(LowPassFilterDenoiser())
-    val featureExtractors: List<FeatureExtractor> = listOf(MeanFeatureExtractor())
+    val featureExtractors: List<FeatureExtractor> = listOf(TimeDomainFeatureExtractor() , FrequencyDomainFeatureExtractor() , MeanFeatureExtractor())
 
     val magnetometerDataCollector = MagnetometerDataCollector(context,sampleCollectionFrequency, dispatcher)
 

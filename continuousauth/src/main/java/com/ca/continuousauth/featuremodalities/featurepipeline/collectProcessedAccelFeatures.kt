@@ -8,7 +8,9 @@ import com.ca.continuousauth.featuremodalities.dataprocessing.denoisers.denoiser
 import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.FeatureExtractor
 import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.featurePipeline
 import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.featureextractorcollection.AccelerometerFeatureExtractor
+import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.featureextractorcollection.FrequencyDomainFeatureExtractor
 import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.featureextractorcollection.MeanFeatureExtractor
+import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.featureextractorcollection.TimeDomainFeatureExtractor
 import com.ca.continuousauth.featuremodalities.dataprocessing.windowing.windowedFlow
 import com.ca.continuousauth.featuremodalities.rawdatacollectors.AccelerometerDataCollector
 import com.ca.continuousauth.utils.Logger
@@ -28,7 +30,8 @@ fun collectProcessedAccelFeatures(
     val windowSize: Int = AuthConfigManager.config.windowSize
     val windowOverlap: Double = AuthConfigManager.config.windowOverlapRatio
     val denoisers: List<SensorDenoiser> = listOf(LowPassFilterDenoiser())
-    val featureExtractors: List<FeatureExtractor> = listOf(MeanFeatureExtractor())
+    val featureExtractors: List<FeatureExtractor> = listOf(TimeDomainFeatureExtractor() ,
+        FrequencyDomainFeatureExtractor() , MeanFeatureExtractor())
 
     val accelerometerCollector = AccelerometerDataCollector(context,sampleCollectionFrequency, dispatcher)
 

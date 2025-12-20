@@ -94,45 +94,46 @@ class EnrollmentManager(
     // --------------------------------------------------
     private fun calculateThreshold(
         validationSet: List<List<Float>>,
-        factor: Float = 3f,    // default scaling factor
-        usePercentile: Boolean = false,
-        percentile: Float = 0.95f
+        factor: Float = 10.0f,              // equivalent to k in PyTorch
+        lowerPercentile: Float = 0.05f,  // lower percentile for outlier removal
+        upperPercentile: Float = 0.95f   // upper percentile for outlier removal
     ): Float? {
         return try {
             val scores = validationSet.mapNotNull { authModel.inferScore(it) }
             if (scores.isEmpty()) return null
 
-            return if (usePercentile) {
-                // Percentile-based threshold
-                val sortedScores = scores.sorted()
-                val index = ((sortedScores.size - 1) * percentile).toInt()
-                sortedScores[index]
-            } else {
-                // Median + MAD threshold (robust)
-                val median = scores.sorted().let { sortedScores ->
-                    val mid = sortedScores.size / 2
-                    if (sortedScores.size % 2 == 0)
-                        (sortedScores[mid - 1] + sortedScores[mid]) / 2
-                    else
-                        sortedScores[mid]
-                }
+            // Sort scores
+            val sortedScores = scores.sorted()
+            val n = sortedScores.size
 
-                val mad = scores.map { abs(it - median) }.sorted().let { absSorted ->
-                    val mid = absSorted.size / 2
-                    if (absSorted.size % 2 == 0)
-                        (absSorted[mid - 1] + absSorted[mid]) / 2
-                    else
-                        absSorted[mid]
-                }
+            // Compute bounds for outlier removal
+            val lowIndex = ((n - 1) * lowerPercentile).toInt().coerceIn(0, n - 1)
+            val highIndex = ((n - 1) * upperPercentile).toInt().coerceIn(0, n - 1)
+            val low = sortedScores[lowIndex]
+            val high = sortedScores[highIndex]
 
-                median + factor * mad
+            // Keep only scores within percentile bounds
+            val cleanScores = sortedScores.filter { it in low..high }
+            if (cleanScores.isEmpty()) return null
+
+            // Compute median
+            val median = cleanScores.sorted().let { cs ->
+                val mid = cs.size / 2
+                if (cs.size % 2 == 0) (cs[mid - 1] + cs[mid]) / 2f else cs[mid]
             }
+
+            // Compute MAD (Median Absolute Deviation)
+            val mad = cleanScores.map { abs(it - median) }.sorted().let { absSorted ->
+                val mid = absSorted.size / 2
+                if (absSorted.size % 2 == 0) (absSorted[mid - 1] + absSorted[mid]) / 2f else absSorted[mid]
+            } + 1e-12f  // to avoid division by zero
+
+            median + factor * mad
         } catch (e: Exception) {
             Logger.e("Threshold calculation error: ${e.message}", e)
             null
         }
     }
-
 
     // --------------------------------------------------
     // Persistent Storage

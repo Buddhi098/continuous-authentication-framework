@@ -3,22 +3,15 @@ package com.ca.continuousauth.featuremodalities.rawdatacollectors
 import com.ca.continuousauth.config.AuthConfigManager
 import com.ca.continuousauth.states.TouchEventData
 import com.ca.continuousauth.utils.Logger
-import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.*
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.delay
 
 /**
- * Touch data collector with fixed frequency emission.
+ * Touch Data Collector using gesture-level features (DOWN → UP)
  *
- * Emits:
- *   - initial zero vector immediately,
- *   - updated touch data whenever a new touch occurs,
- *   - repeated last value at fixed intervals according to frequency.
- *
- * Output: Pair<timestamp, rawVector>
+ * Emits a fixed-size 5D feature vector:
+ * [ dx, dy, gestureSpeed, gestureDuration, avgPressure ]
  */
 class TouchDataCollector(
     private val touchEventFlow: Flow<TouchEventData>?,
@@ -30,32 +23,69 @@ class TouchDataCollector(
 
     override fun start(): Flow<Pair<Long, List<Float>>> = callbackFlow {
         val minIntervalMs = (1000 / frequencyHz.toLong())
-        var lastTouchData: List<Float> = zeroVector()
+        var lastVector = zeroVector()
 
-        // Emit initial zero vector immediately
-        trySend(System.currentTimeMillis() to lastTouchData).isSuccess
+        // Gesture state
+        var startX = 0f
+        var startY = 0f
+        var lastX = 0f
+        var lastY = 0f
+        var startTime = 0L
+        var totalDistance = 0f
+        var pressureSum = 0f
+        var pressureCount = 0
 
-        // Collect touch events asynchronously
-        val touchCollectorJob = touchEventFlow?.onEach { event ->
-            lastTouchData = listOf(
-                event.x,
-                event.y,
-                event.pressure,
-                event.size,
-                event.orientation,
-                event.touchMajor,
-                event.touchMinor
-            )
-        }?.launchIn(this) // 'this' is CoroutineScope of callbackFlow
+        // Emit initial zero vector
+        trySend(System.currentTimeMillis() to lastVector).isSuccess
 
-        // Emit at fixed frequency
+        val job = touchEventFlow?.onEach { event ->
+            when (event.action) {
+                0 -> { // ACTION_DOWN
+                    startX = event.x
+                    startY = event.y
+                    lastX = event.x
+                    lastY = event.y
+                    startTime = event.timestamp
+                    totalDistance = 0f
+                    pressureSum = event.pressure
+                    pressureCount = 1
+                }
+
+                2 -> { // ACTION_MOVE
+                    val dx = event.x - lastX
+                    val dy = event.y - lastY
+                    totalDistance += kotlin.math.sqrt(dx * dx + dy * dy)
+                    lastX = event.x
+                    lastY = event.y
+                    pressureSum += event.pressure
+                    pressureCount++
+                }
+
+                1 -> { // ACTION_UP
+                    val durationMs = (event.timestamp - startTime).coerceAtLeast(1L)
+                    val dx = event.x - startX
+                    val dy = event.y - startY
+                    val speed = totalDistance / durationMs
+                    val avgPressure =
+                        if (pressureCount > 0) pressureSum / pressureCount else 0f
+
+                    lastVector = listOf(
+                        dx,
+                        dy,
+                        speed,
+                        durationMs.toFloat(),
+                        avgPressure
+                    )
+                }
+            }
+        }?.launchIn(this)
+
         while (isActive) {
-            trySend(System.currentTimeMillis() to lastTouchData).isSuccess
+            trySend(System.currentTimeMillis() to lastVector).isSuccess
             delay(minIntervalMs)
         }
 
-        // Cancel the collector when flow is closed
-        awaitClose { touchCollectorJob?.cancel() }
+        awaitClose { job?.cancel() }
     }
         .catch { ex ->
             Logger.e("TouchDataCollector error", ex)
@@ -63,5 +93,5 @@ class TouchDataCollector(
         }
         .flowOn(dispatcher)
 
-    private fun zeroVector(): List<Float> = listOf(0f, 0f, 0f, 0f, 0f , 0f , 0f)
+    private fun zeroVector(): List<Float> = List(5) { 0f }
 }
