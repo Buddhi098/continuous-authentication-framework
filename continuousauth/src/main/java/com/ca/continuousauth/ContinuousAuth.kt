@@ -7,6 +7,7 @@ import com.ca.continuousauth.authengine.EnrollmentManager
 import com.ca.continuousauth.authmodel.AuthModel
 import com.ca.continuousauth.config.AuthConfigManager
 import com.ca.continuousauth.featuremodalities.FeatureModel
+import com.ca.continuousauth.featuremodalities.dataprocessing.scalers.MinMaxScaler
 import com.ca.continuousauth.featuremodalities.dataprocessing.scalers.StandardScaler
 import com.ca.continuousauth.states.AuthVectorResult
 import com.ca.continuousauth.states.CollectionState
@@ -139,7 +140,6 @@ class ContinuousAuth(
                         Logger.d("Training sample collection completed.")
                         _isCollecting.value = false
                         remainingSamples = 0
-                        collectedList = featureModel.applyFitTransform(scaler , collectedList) as MutableList<List<Float>>
                         clearCollectionState()
                         saveCollectionState()
                         updateProgress()
@@ -249,6 +249,7 @@ class ContinuousAuth(
     ) {
         scope.launch {
             try {
+                collectedList = featureModel.applyFitTransform(scaler , collectedList) as MutableList<List<Float>>
                 val result = enrollmentManager.enroll(collectedList, thresholdFactor)
                 _isCheckpointExists.value = checkpointFile.exists()
                 onComplete(result)
@@ -273,6 +274,7 @@ class ContinuousAuth(
         try {
             authManager.loadModel()
             authManager.loadThresholdOnce()
+            scaler.load()
             // Get feature flow
             val featureFlow = featureModel.getFeatureFlowAtFrequency(context, touchEventFlow)
 

@@ -14,4 +14,20 @@ interface Scaler {
      * Transform new data using the previously fitted scaler.
      */
     fun transform(features: List<List<Float>>): List<List<Float>>
+
+    /**
+     * Save the scaler parameters (like min/max) to persistent storage.
+     * Default implementation does nothing.
+     */
+    fun save() {
+        // optional, override in concrete scaler
+    }
+
+    /**
+     * Load the scaler parameters (like min/max) from persistent storage.
+     * Default implementation does nothing.
+     */
+    fun load() {
+        // optional, override in concrete scaler
+    }
 }

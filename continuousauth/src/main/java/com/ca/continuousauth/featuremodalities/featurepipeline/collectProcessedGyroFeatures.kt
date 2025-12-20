@@ -4,12 +4,14 @@ import android.content.Context
 import com.ca.continuousauth.config.AuthConfigManager
 import com.ca.continuousauth.featuremodalities.dataprocessing.denoisers.SensorDenoiser
 import com.ca.continuousauth.featuremodalities.dataprocessing.denoisers.denoisePipeline
+import com.ca.continuousauth.featuremodalities.dataprocessing.denoisers.denoisercollection.HighPassFilterDenoiser
 import com.ca.continuousauth.featuremodalities.dataprocessing.denoisers.denoisercollection.LowPassFilterDenoiser
 import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.FeatureExtractor
 import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.featurePipeline
 import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.featureextractorcollection.FrequencyDomainFeatureExtractor
-import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.featureextractorcollection.GyroscopeFeatureExtractor
 import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.featureextractorcollection.MeanFeatureExtractor
+import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.featureextractorcollection.MicroMovementFeatureExtractor
+import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.featureextractorcollection.StatisticalFeatureExtractor
 import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.featureextractorcollection.TimeDomainFeatureExtractor
 import com.ca.continuousauth.featuremodalities.dataprocessing.windowing.windowedFlow
 import com.ca.continuousauth.featuremodalities.rawdatacollectors.GyroscopeDataCollector
@@ -29,10 +31,8 @@ fun collectProcessedGyroFeatures(
     val sampleCollectionFrequency: Int = AuthConfigManager.config.sampleCollectionFrequencyHz
     val windowSize: Int = AuthConfigManager.config.windowSize
     val windowOverlap: Double = AuthConfigManager.config.windowOverlapRatio
-    val denoisers: List<SensorDenoiser> = listOf(LowPassFilterDenoiser())
-    val featureExtractors: List<FeatureExtractor> = listOf(TimeDomainFeatureExtractor() ,
-        FrequencyDomainFeatureExtractor() , MeanFeatureExtractor())
-
+    val denoisers: List<SensorDenoiser> = listOf(HighPassFilterDenoiser())
+    val featureExtractors: List<FeatureExtractor> = listOf(MicroMovementFeatureExtractor())
     val gyroscopeDataCollector = GyroscopeDataCollector(context,sampleCollectionFrequency, dispatcher)
 
     return gyroscopeDataCollector.start()

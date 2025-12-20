@@ -1,6 +1,7 @@
 package com.ca.continuousauth.featuremodalities.dataprocessing.scalers
 
 import android.content.Context
+import com.ca.continuousauth.utils.Logger
 import kotlin.math.pow
 import kotlin.math.sqrt
 
@@ -76,13 +77,19 @@ class StandardScaler(private val context: Context) : Scaler {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val meanStr = prefs.getString(KEY_MEAN, null)
         val stdStr = prefs.getString(KEY_STD, null)
-
+        Logger.d("Loaded mean: $meanStr, std: $stdStr")
         if (!meanStr.isNullOrEmpty() && !stdStr.isNullOrEmpty()) {
             mean = meanStr.split(",").map { it.toFloat() }.toFloatArray()
             std = stdStr.split(",").map { it.toFloat() }.toFloatArray()
         }
     }
+    override fun save() {
+        saveToPrefs()
+    }
 
+    override fun load() {
+        loadFromPrefs()
+    }
     /**
      * Save mean and std to SharedPreferences.
      */

@@ -1,6 +1,7 @@
 package com.ca.continuousauth.featuremodalities.dataprocessing.scalers
 
 import android.content.Context
+import com.ca.continuousauth.utils.Logger
 
 /**
  * MinMaxScaler scales features to a fixed range [0, 1] with persistent storage.
@@ -54,6 +55,15 @@ class MinMaxScaler(private val context: Context) : Scaler {
         }
     }
 
+    override fun save() {
+        saveToPrefs()
+    }
+
+    override fun load() {
+        loadFromPrefs()
+    }
+
+
     /**
      * Get the fitted min and max for inspection.
      */
@@ -68,6 +78,7 @@ class MinMaxScaler(private val context: Context) : Scaler {
         val minStr = prefs.getString(KEY_MIN, null)
         val maxStr = prefs.getString(KEY_MAX, null)
 
+        Logger.d("Loaded min: $minStr, max: $maxStr")
         if (!minStr.isNullOrEmpty() && !maxStr.isNullOrEmpty()) {
             min = minStr.split(",").map { it.toFloat() }.toFloatArray()
             max = maxStr.split(",").map { it.toFloat() }.toFloatArray()
@@ -83,5 +94,6 @@ class MinMaxScaler(private val context: Context) : Scaler {
         editor.putString(KEY_MIN, min?.joinToString(","))
         editor.putString(KEY_MAX, max?.joinToString(","))
         editor.apply()
+        Logger.d("Saved min: ${min?.joinToString(",")}, max: ${max?.joinToString(",")}")
     }
 }

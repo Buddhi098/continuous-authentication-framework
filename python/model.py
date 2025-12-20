@@ -19,7 +19,7 @@ ASSETS_DIR.mkdir(parents=True, exist_ok=True)
 EXPORT_PATH = PROJECT_ROOT / "python" / "saved_autoencoder"
 TFLITE_FILE_PATH = ASSETS_DIR / "model.tflite"
 
-INPUT_DIM = 77
+INPUT_DIM = 140
 LATENT_DIM = 64
 BATCH_SIZE = 32
 LOSS_ALPHA = 0.9 # for combined loss function
