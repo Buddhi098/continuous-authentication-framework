@@ -30,6 +30,24 @@ class AuthenticationViewModel(
         private set
 
     // -----------------------------
+    // Evaluation State
+    // -----------------------------
+    var evaluationRunning by mutableStateOf(false)
+        private set
+
+    var processedSamples by mutableStateOf(0)
+        private set
+
+    var targetSamples by mutableStateOf(0)
+        private set
+
+    var acceptedCount by mutableStateOf(0)
+        private set
+
+    var authPercentage by mutableStateOf(0f)
+        private set
+
+    // -----------------------------
     // Start Authentication
     // -----------------------------
     fun startAuthentication() {
@@ -54,6 +72,44 @@ class AuthenticationViewModel(
     fun stopAuthentication() {
         authenticationRunning = false
         lastAuthResult = null
+        auth.stopAuthentication()
+    }
+
+    // -----------------------------
+    // Evaluation Function
+    // -----------------------------
+    fun startEvaluation(samples: Int) {
+        if (!isCheckpointExists.value) {
+            errorMessage = "Authentication model not enrolled."
+            return
+        }
+        if (samples <= 0) return
+
+        targetSamples = samples
+        processedSamples = 0
+        acceptedCount = 0
+        authPercentage = 0f
+        evaluationRunning = true
+
+        auth.startAuthentication { result ->
+            if (!evaluationRunning) return@startAuthentication
+
+            processedSamples++
+            if (result.isAuthenticated) {
+                acceptedCount++
+            }
+
+            authPercentage = (acceptedCount.toFloat() / processedSamples.toFloat()) * 100f
+            lastAuthResult = result
+
+            if (processedSamples >= targetSamples) {
+                stopEvaluation()
+            }
+        }
+    }
+
+    fun stopEvaluation() {
+        evaluationRunning = false
         auth.stopAuthentication()
     }
 }

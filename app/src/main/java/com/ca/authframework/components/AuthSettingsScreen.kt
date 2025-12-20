@@ -23,6 +23,8 @@ fun AuthSettingsScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+
+        // --------------------- Authentication Controls ---------------------
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Text(
@@ -34,6 +36,7 @@ fun AuthSettingsScreen(
             }
         }
 
+        // --------------------- Enrollment Controls ---------------------
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Text(
@@ -47,6 +50,18 @@ fun AuthSettingsScreen(
                 )
             }
         }
+
+        // --------------------- Evaluation Section ---------------------
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    "Evaluation",
+                    style = MaterialTheme.typography.titleLarge
+                )
+                Divider(Modifier.padding(vertical = 8.dp))
+                // EvaluationScreen embedded directly
+                EvaluationScreen(viewModel = authenticationViewModel)
+            }
+        }
     }
 }
-

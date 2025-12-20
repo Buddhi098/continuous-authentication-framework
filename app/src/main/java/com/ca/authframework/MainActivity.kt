@@ -54,6 +54,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var enrollmentViewModel: EnrollmentViewModel
     private lateinit var authenticationViewModel: AuthenticationViewModel
 
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -72,9 +73,9 @@ class MainActivity : ComponentActivity() {
         enrollmentViewModel = EnrollmentViewModel(applicationContext, ContinuousAuthManager.continuousAuth)
         authenticationViewModel = AuthenticationViewModel(ContinuousAuthManager.continuousAuth)
 
-        if (authenticationViewModel.isCheckpointExists.value) {
-            authenticationViewModel.startAuthentication()
-        }
+//        if (authenticationViewModel.isCheckpointExists.value) {
+//            authenticationViewModel.startAuthentication()
+//        }
 
         if (enrollmentViewModel.isPaused.value) {
             authenticationViewModel.stopAuthentication()
@@ -87,19 +88,20 @@ class MainActivity : ComponentActivity() {
                 val navController = rememberNavController()
                 val lastAuthResult = authenticationViewModel.lastAuthResult
                 val isAuthRunning = authenticationViewModel.authenticationRunning
+                val evaluationRunning = authenticationViewModel.evaluationRunning
 
                 val currentAuthStatus =
-                    if (isAuthRunning && lastAuthResult != null) {
+                    if ((evaluationRunning || isAuthRunning) && lastAuthResult != null) {
                         if (lastAuthResult.isAuthenticated) "Authenticated" else "Rejected"
                     } else "Unknown"
 
                 val currentScore =
-                    if (isAuthRunning && lastAuthResult != null) {
+                    if ((evaluationRunning || isAuthRunning) && lastAuthResult != null) {
                         "%.3f".format(lastAuthResult.score)
                     } else "N/A"
 
                 val currentAuthPercentage =
-                    if (isAuthRunning && lastAuthResult?.authPercentage != null) {
+                    if ((evaluationRunning || isAuthRunning) && lastAuthResult?.authPercentage != null) {
                         "%.2f%%".format(lastAuthResult.authPercentage)
                     } else "N/A"
 

@@ -83,7 +83,8 @@ class AuthenticationManager(
             isAuthenticated = isAuthenticated,
             score = score,
             threshold = threshold,
-            authPercentage = authPercentage
+            authPercentage = authPercentage,
+            totalAuthentications = totalAuthentications
         )
     }
 

@@ -4,5 +4,6 @@ data class AuthVectorResult(
     val isAuthenticated: Boolean,
     val score: Float?,
     val threshold: Float?,
-    val authPercentage: Float? = null // new field for percentage
+    val authPercentage: Float?,
+    val totalAuthentications: Int?
 )
