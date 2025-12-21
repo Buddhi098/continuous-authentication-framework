@@ -6,6 +6,7 @@ import com.ca.continuousauth.utils.Logger
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.*
+import kotlin.math.abs
 
 /**
  * Touch Data Collector using gesture-level features (DOWN → UP)
@@ -68,12 +69,17 @@ class TouchDataCollector(
                     val speed = totalDistance / durationMs
                     val avgPressure =
                         if (pressureCount > 0) pressureSum / pressureCount else 0f
+                    val dxAbs = abs(dx)
+                    val dyAbs = abs(dy)
+                    val speedAbs = abs(speed)
+                    val durationAbs = abs(durationMs.toFloat())
+                    val avgPressureAbs = abs(avgPressure)
 
                     lastVector = listOf(
-                        dx,
-                        dy,
-                        speed,
-                        durationMs.toFloat(),
+                        dxAbs,
+                        dyAbs,
+                        speedAbs,
+                        durationAbs,
                         avgPressure
                     )
                 }
