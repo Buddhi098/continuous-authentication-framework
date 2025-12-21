@@ -31,8 +31,9 @@ fun collectProcessedGyroFeatures(
     val sampleCollectionFrequency: Int = AuthConfigManager.config.sampleCollectionFrequencyHz
     val windowSize: Int = AuthConfigManager.config.windowSize
     val windowOverlap: Double = AuthConfigManager.config.windowOverlapRatio
-    val denoisers: List<SensorDenoiser> = listOf(HighPassFilterDenoiser())
-    val featureExtractors: List<FeatureExtractor> = listOf(MicroMovementFeatureExtractor())
+    val denoisers: List<SensorDenoiser> = listOf(LowPassFilterDenoiser())
+    val featureExtractors: List<FeatureExtractor> = listOf(MeanFeatureExtractor())
+
     val gyroscopeDataCollector = GyroscopeDataCollector(context,sampleCollectionFrequency, dispatcher)
 
     return gyroscopeDataCollector.start()

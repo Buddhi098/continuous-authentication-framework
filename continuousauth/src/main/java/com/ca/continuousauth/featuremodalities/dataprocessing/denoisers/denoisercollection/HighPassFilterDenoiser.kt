@@ -10,7 +10,7 @@ import kotlin.math.abs
  * Removes low-frequency / large gesture components to isolate micro-movements.
  * alpha: smoothing factor (0..1). Lower alpha keeps more high-frequency details.
  */
-class HighPassFilterDenoiser(private val alpha: Float = 0.2f) : SensorDenoiser {
+class HighPassFilterDenoiser(private val alpha: Float = 0.7f) : SensorDenoiser {
 
     init { require(alpha in 0f..1f) { "alpha must be between 0 and 1" } }
 

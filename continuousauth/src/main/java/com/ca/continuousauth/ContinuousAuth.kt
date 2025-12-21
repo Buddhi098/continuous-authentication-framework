@@ -244,13 +244,12 @@ class ContinuousAuth(
     // Public API: Start Enrollment
     // --------------------------------------------------
     fun startEnrollment(
-        thresholdFactor: Float = 3f,
         onComplete: (EnrollmentResult) -> Unit
     ) {
         scope.launch {
             try {
                 collectedList = featureModel.applyFitTransform(scaler , collectedList) as MutableList<List<Float>>
-                val result = enrollmentManager.enroll(collectedList, thresholdFactor)
+                val result = enrollmentManager.enroll(collectedList)
                 _isCheckpointExists.value = checkpointFile.exists()
                 onComplete(result)
             } catch (e: Exception) {

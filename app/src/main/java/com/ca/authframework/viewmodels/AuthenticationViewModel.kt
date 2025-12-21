@@ -47,6 +47,11 @@ class AuthenticationViewModel(
     var authPercentage by mutableStateOf(0f)
         private set
 
+    var averageScore by mutableStateOf(0f)  // <-- NEW: average score during evaluation
+        private set
+
+    private var totalScoreSum = 0f          // internal sum for calculation
+
     // -----------------------------
     // Start Authentication
     // -----------------------------
@@ -89,6 +94,8 @@ class AuthenticationViewModel(
         processedSamples = 0
         acceptedCount = 0
         authPercentage = 0f
+        averageScore = 0f
+        totalScoreSum = 0f
         evaluationRunning = true
 
         auth.startAuthentication { result ->
@@ -99,7 +106,15 @@ class AuthenticationViewModel(
                 acceptedCount++
             }
 
+            // Update auth percentage
             authPercentage = (acceptedCount.toFloat() / processedSamples.toFloat()) * 100f
+
+            // Update average score
+            result.score?.let { score ->
+                totalScoreSum += score
+                averageScore = totalScoreSum / processedSamples
+            }
+
             lastAuthResult = result
 
             if (processedSamples >= targetSamples) {

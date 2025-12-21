@@ -22,7 +22,7 @@ TFLITE_FILE_PATH = ASSETS_DIR / "model.tflite"
 INPUT_DIM = 140
 LATENT_DIM = 64
 BATCH_SIZE = 32
-LOSS_ALPHA = 0.9 # for combined loss function
+LOSS_ALPHA = 0.8 # for combined loss function
 
 # -------------------------------------------------------------------------
 # 1. High-Accuracy Autoencoder Definition

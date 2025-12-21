@@ -3,7 +3,7 @@ package com.ca.continuousauth.featuremodalities.dataprocessing.denoisers.denoise
 import com.ca.continuousauth.featuremodalities.dataprocessing.denoisers.SensorDenoiser
 import com.ca.continuousauth.utils.Logger
 
-class LowPassFilterDenoiser(private val alpha: Float = 0.4f) : SensorDenoiser {
+class LowPassFilterDenoiser(private val alpha: Float = 0.2f) : SensorDenoiser {
 
     init { require(alpha in 0f..1f) { "alpha must be between 0 and 1" } }
 

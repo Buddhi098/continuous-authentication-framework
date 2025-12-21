@@ -118,6 +118,7 @@ fun EvaluationScreen(viewModel: AuthenticationViewModel) {
                     color = MaterialTheme.colorScheme.primary
                 )
 
+                // Last Score
                 viewModel.lastAuthResult?.score?.let { lastScore ->
                     Text(
                         text = "Last Score: ${"%.4f".format(lastScore)}",
@@ -126,6 +127,14 @@ fun EvaluationScreen(viewModel: AuthenticationViewModel) {
                         color = Color.Gray
                     )
                 }
+
+                // Average Score
+                Text(
+                    text = "Average Score: ${"%.4f".format(viewModel.averageScore)}",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = Color.Gray
+                )
             }
         }
 
