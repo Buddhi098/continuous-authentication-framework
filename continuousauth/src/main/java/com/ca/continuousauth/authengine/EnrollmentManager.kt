@@ -187,7 +187,7 @@ class EnrollmentManager(
 
     private fun calculateThreshold(
         validationSet: List<List<Float>>,
-        factor: Float = 10.0f,              // k * std
+        factor: Float = 6.0f,              // k * std
         lowerPercentile: Float = 0.0f,
         upperPercentile: Float = 0.95f
     ): Float? {

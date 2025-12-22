@@ -42,7 +42,7 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         private const val TAG = "CAFramework"
-        private const val TARGET_SAMPLES = 1200
+        private const val TARGET_SAMPLES = 2000
     }
     /* ---------------------------------------------------------------------- */
     /*                        TOUCH EVENT STREAM                               */

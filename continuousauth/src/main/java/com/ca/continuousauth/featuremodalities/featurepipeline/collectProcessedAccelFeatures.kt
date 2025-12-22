@@ -36,8 +36,7 @@ fun collectProcessedAccelFeatures(
     val windowSize: Int = AuthConfigManager.config.windowSize
     val windowOverlap: Double = AuthConfigManager.config.windowOverlapRatio
     val denoisers: List<SensorDenoiser> = listOf(AdvancedAccelerometerDenoiser())
-    val featureExtractors: List<FeatureExtractor> = listOf(AccelerometerFeatureExtractor() ,
-        BiometricAxisMicroMovementExtractor())
+    val featureExtractors: List<FeatureExtractor> = listOf(MeanFeatureExtractor())
 
     val accelerometerCollector = AccelerometerDataCollector(context,sampleCollectionFrequency, dispatcher)
 
