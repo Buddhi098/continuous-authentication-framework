@@ -54,7 +54,7 @@ class ContinuousAuth(
         checkpointFile = checkpointFile,
         thresholdFile = thresholdFile,
         storedVectorsFile = storedVectorsFile,
-        maxStoredVectors = enrollmentSamples
+        maxStoredVectors = 10
     )
     private val enrollmentManager = EnrollmentManager(
         authModel = authModel,
@@ -251,6 +251,7 @@ class ContinuousAuth(
                 collectedList = featureModel.applyFitTransform(scaler , collectedList) as MutableList<List<Float>>
                 val result = enrollmentManager.enroll(collectedList)
                 _isCheckpointExists.value = checkpointFile.exists()
+                clearCollectionState()
                 onComplete(result)
             } catch (e: Exception) {
                 Logger.e("Enrollment exception: ${e.message}", e)
@@ -284,12 +285,23 @@ class ContinuousAuth(
                         try {
                             // Convert 1D vector to 2D list with a single row
                             val vector2D: List<List<Float>> = listOf(vector)
+                            val startTime1 = System.nanoTime()
                             val scaled2D: List<List<Float>> = featureModel.applyTransform(scaler, vector2D)
+                            val endTime1 = System.nanoTime()
+                            val elapsedMs = (endTime1 - startTime1) / 1_000_000.0
+                            Logger.d("Scaling execution time: $elapsedMs ms")
                             val scaledVector = scaled2D.firstOrNull() ?: vector
-
                             Logger.d("Received Scaled feature vector from flow: $scaledVector")
 
+                            val startTime = System.nanoTime()  // start timing
                             val result = authManager.authenticateFeatureVector(scaledVector)
+                            val endTime = System.nanoTime()    // end timing
+                            val durationMs = (endTime - startTime) / 1_000_000.0  // convert to milliseconds
+
+                            Logger.d(
+                                "Authentication executionTime=${"%.3f".format(durationMs)}ms"
+                            )
+
                             onResult(result)
 
                         } catch (e: Exception) {
@@ -314,6 +326,7 @@ class ContinuousAuth(
     // --------------------------------------------------
     fun stopAuthentication() {
         authScope.coroutineContext.cancelChildren()
+        authManager.stopAuthentication()
         authManager.resetAuthenticationCounters()
         Logger.d("Authentication stopped")
     }

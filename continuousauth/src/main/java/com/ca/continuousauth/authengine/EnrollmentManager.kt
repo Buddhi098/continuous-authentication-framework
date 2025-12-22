@@ -142,45 +142,105 @@ class EnrollmentManager(
     // --------------------------------------------------
     // Threshold Calculation
     // --------------------------------------------------
+//    private fun calculateThreshold(
+//        validationSet: List<List<Float>>,
+//        factor: Float =8.0f,              // equivalent to k in PyTorch
+//        lowerPercentile: Float = 0f,  // lower percentile for outlier removal
+//        upperPercentile: Float = 0.9f   // upper percentile for outlier removal
+//    ): Float? {
+//        return try {
+//            val scores = validationSet.mapNotNull { authModel.inferScore(it) }
+//            if (scores.isEmpty()) return null
+//
+//            // Sort scores
+//            val sortedScores = scores.sorted()
+//            val n = sortedScores.size
+//
+//            // Compute bounds for outlier removal
+//            val lowIndex = ((n - 1) * lowerPercentile).toInt().coerceIn(0, n - 1)
+//            val highIndex = ((n - 1) * upperPercentile).toInt().coerceIn(0, n - 1)
+//            val low = sortedScores[lowIndex]
+//            val high = sortedScores[highIndex]
+//
+//            // Keep only scores within percentile bounds
+//            val cleanScores = sortedScores.filter { it in low..high }
+//            if (cleanScores.isEmpty()) return null
+//
+//            // Compute median
+//            val median = cleanScores.sorted().let { cs ->
+//                val mid = cs.size / 2
+//                if (cs.size % 2 == 0) (cs[mid - 1] + cs[mid]) / 2f else cs[mid]
+//            }
+//
+//            // Compute MAD (Median Absolute Deviation)
+//            val mad = cleanScores.map { abs(it - median) }.sorted().let { absSorted ->
+//                val mid = absSorted.size / 2
+//                if (absSorted.size % 2 == 0) (absSorted[mid - 1] + absSorted[mid]) / 2f else absSorted[mid]
+//            } + 1e-12f  // to avoid division by zero
+//
+//            median + factor * mad
+//        } catch (e: Exception) {
+//            Logger.e("Threshold calculation error: ${e.message}", e)
+//            null
+//        }
+//    }
+
     private fun calculateThreshold(
         validationSet: List<List<Float>>,
-        factor: Float = 8.0f,              // equivalent to k in PyTorch
-        lowerPercentile: Float = 0f,  // lower percentile for outlier removal
-        upperPercentile: Float = 0.9f   // upper percentile for outlier removal
+        factor: Float = 10.0f,              // k * std
+        lowerPercentile: Float = 0.0f,
+        upperPercentile: Float = 0.95f
     ): Float? {
         return try {
-            val scores = validationSet.mapNotNull { authModel.inferScore(it) }
-            if (scores.isEmpty()) return null
 
-            // Sort scores
-            val sortedScores = scores.sorted()
-            val n = sortedScores.size
+            // --------------------------------------------------
+            // 1. Infer + denoise all scores
+            // --------------------------------------------------
+            val scoreDenoiser = AdaptiveScoreDenoiser()
+            scoreDenoiser.reset()
 
-            // Compute bounds for outlier removal
-            val lowIndex = ((n - 1) * lowerPercentile).toInt().coerceIn(0, n - 1)
-            val highIndex = ((n - 1) * upperPercentile).toInt().coerceIn(0, n - 1)
-            val low = sortedScores[lowIndex]
-            val high = sortedScores[highIndex]
-
-            // Keep only scores within percentile bounds
-            val cleanScores = sortedScores.filter { it in low..high }
-            if (cleanScores.isEmpty()) return null
-
-            // Compute median
-            val median = cleanScores.sorted().let { cs ->
-                val mid = cs.size / 2
-                if (cs.size % 2 == 0) (cs[mid - 1] + cs[mid]) / 2f else cs[mid]
+            val denoisedScores = validationSet.mapNotNull { vector ->
+                authModel.inferScore(vector)?.let { raw ->
+                    scoreDenoiser.denoise(raw)
+                }
             }
 
-            // Compute MAD (Median Absolute Deviation)
-            val mad = cleanScores.map { abs(it - median) }.sorted().let { absSorted ->
-                val mid = absSorted.size / 2
-                if (absSorted.size % 2 == 0) (absSorted[mid - 1] + absSorted[mid]) / 2f else absSorted[mid]
-            } + 1e-12f  // to avoid division by zero
+            if (denoisedScores.isEmpty()) return null
 
-            median + factor * mad
+            // --------------------------------------------------
+            // 2. Percentile-based outlier removal
+            // --------------------------------------------------
+            val sorted = denoisedScores.sorted()
+            val n = sorted.size
+
+            val lowIndex = ((n - 1) * lowerPercentile).toInt().coerceIn(0, n - 1)
+            val highIndex = ((n - 1) * upperPercentile).toInt().coerceIn(0, n - 1)
+
+            val low = sorted[lowIndex]
+            val high = sorted[highIndex]
+
+            val cleanScores = sorted.filter { it in low..high }
+            if (cleanScores.isEmpty()) return null
+
+            // --------------------------------------------------
+            // 3. Mean + Standard Deviation
+            // --------------------------------------------------
+            val mean = cleanScores.average().toFloat()
+
+            val variance = cleanScores
+                .map { (it - mean) * (it - mean) }
+                .average()
+                .toFloat()
+
+            val std = kotlin.math.sqrt(variance)
+
+            // --------------------------------------------------
+            // 4. Final threshold
+            // --------------------------------------------------
+            mean + factor * std
+
         } catch (e: Exception) {
-            Logger.e("Threshold calculation error: ${e.message}", e)
+            Logger.e("Threshold calculation failed", e)
             null
         }
     }

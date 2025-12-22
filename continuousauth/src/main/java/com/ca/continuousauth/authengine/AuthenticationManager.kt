@@ -14,7 +14,7 @@ class AuthenticationManager(
     private val checkpointFile: File,
     private val thresholdFile: File,
     private val storedVectorsFile: File,
-    private val maxStoredVectors: Int = 100
+    private val maxStoredVectors: Int = 100,
 ) {
 
     private val authenticatedVectors = mutableListOf<List<Float>>()
@@ -26,11 +26,14 @@ class AuthenticationManager(
     private var totalAuthentications: Int = 0
     private var successfulAuthentications: Int = 0
 
+    private val adaptiveScoreDenoiser: AdaptiveScoreDenoiser = AdaptiveScoreDenoiser()
+
     init {
         Logger.d("AuthenticationManager initializing")
         loadStoredVectors()
         loadModel()
         loadThresholdOnce()
+        adaptiveScoreDenoiser.reset()
         Logger.d("AuthenticationManager initialization completed")
     }
 
@@ -52,7 +55,13 @@ class AuthenticationManager(
             throw IllegalStateException("Threshold not available")
         }
 
-        val score = authModel.inferScore(featureVector)
+        val startTime = System.nanoTime()   // start timer
+
+        val noiceScore = authModel.inferScore(featureVector)
+        val score = adaptiveScoreDenoiser.denoise(noiceScore!!)
+        val endTime = System.nanoTime()     // end timer
+        val durationMs = (endTime - startTime) / 1_000_000.0  // convert to milliseconds
+
         if (score == null) {
             Logger.e("Authentication failed: inference returned null")
             throw IllegalStateException("Inference failed")
@@ -76,7 +85,7 @@ class AuthenticationManager(
         Logger.d(
             "Authentication result -> " +
                     "score=$score, threshold=$threshold, authenticated=$isAuthenticated, " +
-                    "authPercentage=$authPercentage"
+                    "authPercentage=$authPercentage, infer execution time=${"%.3f".format(durationMs)}ms"
         )
 
         return AuthVectorResult(
@@ -87,7 +96,23 @@ class AuthenticationManager(
             totalAuthentications = totalAuthentications
         )
     }
+    fun stopAuthentication(resetCounters: Boolean = true) {
 
+        Logger.d("Stopping authentication session")
+
+        // Reset adaptive score smoothing (VERY IMPORTANT)
+        adaptiveScoreDenoiser.reset()
+        Logger.d("AdaptiveScoreDenoiser reset")
+
+        // Reset counters if requested
+        if (resetCounters) {
+            totalAuthentications = 0
+            successfulAuthentications = 0
+            Logger.d("Authentication counters reset")
+        }
+
+        Logger.d("Authentication stopped successfully")
+    }
     // --------------------------------------------------
     // Initialization helpers
     // --------------------------------------------------

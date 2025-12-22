@@ -4,6 +4,7 @@ import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.
 import com.ca.continuousauth.utils.Logger
 import kotlin.math.cos
 import kotlin.math.hypot
+import kotlin.math.ln
 import kotlin.math.pow
 import kotlin.math.sin
 import kotlin.math.sqrt
@@ -20,10 +21,16 @@ class FrequencyDomainFeatureExtractor : FeatureExtractor {
                 val values = window.map { it.second[axis] }
                 val fft = fftMagnitude(values)
 
+                // Basic features
                 features.add(fft.mean())
                 features.add(fft.std())
-                features.add(fft.max())
+                features.add(fft.maxOrNull() ?: 0f)
                 features.add(fft.energy())
+
+                // Discriminative frequency features
+                features.add(fft.spectralCentroid())
+                features.add(fft.spectralBandwidth())
+                features.add(fft.spectralEntropy())
             }
 
             features
@@ -33,9 +40,36 @@ class FrequencyDomainFeatureExtractor : FeatureExtractor {
         }
     }
 
-    private fun List<Float>.mean() = if (isEmpty()) 0f else sum() / size
-    private fun List<Float>.std() = if (isEmpty()) 0f else sqrt(map { (it - mean()).pow(2) }.sum() / size)
-    private fun List<Float>.energy() = map { it * it }.sum()
+    // ------------------- Utility functions -------------------
+    private fun List<Float>.mean(): Float = if (isEmpty()) 0f else this.fold(0f) { acc, f -> acc + f } / size
+
+    private fun List<Float>.std(): Float {
+        if (isEmpty()) return 0f
+        val m = mean()
+        return sqrt(this.fold(0f) { acc, f -> acc + (f - m).pow(2) } / size)
+    }
+
+    private fun List<Float>.energy(): Float = this.fold(0f) { acc, f -> acc + f * f }
+
+    private fun List<Float>.spectralCentroid(): Float {
+        val n = size
+        if (n == 0) return 0f
+        val weightedSum = this.mapIndexed { i, mag -> i * mag }.fold(0f) { acc, f -> acc + f }
+        val totalMag = this.fold(0f) { acc, f -> acc + f }.takeIf { it != 0f } ?: 1f
+        return weightedSum / totalMag
+    }
+
+    private fun List<Float>.spectralBandwidth(): Float {
+        val centroid = spectralCentroid()
+        val totalMag = this.fold(0f) { acc, f -> acc + f }.takeIf { it != 0f } ?: 1f
+        return sqrt(this.mapIndexed { i, mag -> ((i - centroid).pow(2)) * mag }.fold(0f) { acc, f -> acc + f } / totalMag)
+    }
+
+    private fun List<Float>.spectralEntropy(): Float {
+        val totalMag = this.fold(0f) { acc, f -> acc + f }.takeIf { it != 0f } ?: 1f
+        val probs = this.map { mag -> mag / totalMag }
+        return -probs.map { p -> if (p > 0) p * ln(p.toDouble()) else 0.0 }.sum().toFloat()
+    }
 
     /**
      * Computes FFT magnitude for a 1D signal (simple DFT).

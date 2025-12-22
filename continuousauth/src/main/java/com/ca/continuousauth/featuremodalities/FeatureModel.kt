@@ -10,7 +10,6 @@ import com.ca.continuousauth.featuremodalities.dataprocessing.scalers.StandardSc
 import com.ca.continuousauth.featuremodalities.featurefusion.FusedFeatureBuilder2D
 import com.ca.continuousauth.featuremodalities.featurepipeline.collectProcessedAccelFeatures
 import com.ca.continuousauth.featuremodalities.featurepipeline.collectProcessedGyroFeatures
-import com.ca.continuousauth.featuremodalities.featurepipeline.collectProcessedMagnoFeatures
 import com.ca.continuousauth.featuremodalities.featurepipeline.collectTouchDynamicFeature
 import com.ca.continuousauth.states.TouchEventData
 import com.ca.continuousauth.utils.Logger
@@ -36,15 +35,13 @@ class FeatureModel {
         // Define flows for each modality
         val accelFlow: Flow<List<Float>> = collectProcessedAccelFeatures(context)
         val gyroFlow: Flow<List<Float>> = collectProcessedGyroFeatures(context)
-        val magnoFlow: Flow<List<Float>> = collectProcessedMagnoFeatures(context)
         val touchFlow: Flow<List<Float>> = collectTouchDynamicFeature(touchEventFlow)
 
         // Combine all flows dynamically
-        val fusedFlow: Flow<List<Float>> = combine(accelFlow, gyroFlow , magnoFlow , touchFlow) { arrays ->
+        val fusedFlow: Flow<List<Float>> = combine(accelFlow, gyroFlow ,touchFlow) { arrays ->
             val fusedMap = mapOf(
                 "accel" to listOf(arrays[0]),
                 "gyro" to listOf(arrays[1]),
-                "magno" to listOf(arrays[2]),
                 "touch" to listOf(arrays[3])
 //                "magnetometer" to listOf(arrays[2])
             )
@@ -68,16 +65,14 @@ class FeatureModel {
         // Individual modality feature flows
         val accelFlow: Flow<List<Float>> = collectProcessedAccelFeatures(context)
         val gyroFlow: Flow<List<Float>> = collectProcessedGyroFeatures(context)
-        val magnoFlow: Flow<List<Float>> = collectProcessedMagnoFeatures(context)
         val touchFlow: Flow<List<Float>> = collectTouchDynamicFeature(touchEventFlow)
 
         // Combine them into a fused feature vector
-        return combine(accelFlow, gyroFlow, magnoFlow, touchFlow) { accel, gyro, magno, touch ->
+        return combine(accelFlow, gyroFlow,  touchFlow) { accel, gyro,touch ->
 
             val fusedMap = mapOf(
                 "accel" to listOf(accel),
                 "gyro" to listOf(gyro),
-                "magno" to listOf(magno),
                 "touch" to listOf(touch)
             )
 
@@ -86,13 +81,6 @@ class FeatureModel {
         }
     }
 
-    /**
-     * Returns a continuous Flow emitting fused feature vectors at a fixed target frequency.
-     *
-     * @param context Android context
-     * @param touchEventFlow Optional touch event flow
-     * @param targetFrequencyHz Desired frequency in Hz
-     */
     fun getFeatureFlowAtFrequency(
         context: Context,
         touchEventFlow: Flow<TouchEventData>?,
@@ -112,16 +100,14 @@ class FeatureModel {
         // Individual modality feature flows
         val accelFlow = collectProcessedAccelFeatures(context)
         val gyroFlow = collectProcessedGyroFeatures(context)
-        val magnoFlow = collectProcessedMagnoFeatures(context)
         val touchFlow = collectTouchDynamicFeature(touchEventFlow)
 
         // Combine flows
-        val combinedFlow = combine(accelFlow, gyroFlow, magnoFlow, touchFlow) { accel, gyro, magno, touch ->
+        val combinedFlow = combine(accelFlow, gyroFlow,touchFlow) { accel, gyro,  touch ->
             val fusedMap = mapOf(
                 "accel" to listOf(accel),
                 "gyro" to listOf(gyro),
-                "magno" to listOf(magno),
-                "touch" to listOf(touch)
+                "touch" to listOf(touch),
             )
             FusedFeatureBuilder2D.buildFusedMatrix(fusedMap).first()
         }
@@ -133,6 +119,43 @@ class FeatureModel {
             }
             .conflate() // prevent backlog if sensors are faster
     }
+
+//    fun getFeatureFlowAtFrequency(
+//        context: Context,
+//        touchEventFlow: Flow<TouchEventData>?,
+//    ): Flow<List<Float>> {
+//
+//        val sampleRateHz: Double = AuthConfigManager.config.sampleCollectionFrequencyHz.toDouble()
+//        val windowSize: Double = AuthConfigManager.config.windowSize.toDouble()
+//        val overlap: Double = AuthConfigManager.config.windowOverlapRatio
+//
+//        val stepSize = windowSize * (1.0 - overlap)
+//        val AuthenticationFrequencyHz: Double = sampleRateHz / stepSize
+//        Logger.d("Authentication frequency = $AuthenticationFrequencyHz Hz")
+//
+//        // Compute interval in milliseconds
+//        val intervalMs: Long = (1000.0 / AuthenticationFrequencyHz).toLong()
+//
+//        // Individual modality feature flows
+//        val accelFlow = collectProcessedAccelFeatures(context)
+//        val gyroFlow = collectProcessedGyroFeatures(context)
+//
+//        // Combine flows
+//        val combinedFlow = combine(accelFlow, gyroFlow) { accel, gyro->
+//            val fusedMap = mapOf(
+//                "accel" to listOf(accel),
+//                "gyro" to listOf(gyro),
+//            )
+//            FusedFeatureBuilder2D.buildFusedMatrix(fusedMap).first()
+//        }
+//
+//        // Throttle to exact target frequency
+//        return combinedFlow
+//            .onEach {
+//                delay(intervalMs) // suspend function works here
+//            }
+//            .conflate() // prevent backlog if sensors are faster
+//    }
 
     /**
      * Apply fitTransform using the provided scaler.

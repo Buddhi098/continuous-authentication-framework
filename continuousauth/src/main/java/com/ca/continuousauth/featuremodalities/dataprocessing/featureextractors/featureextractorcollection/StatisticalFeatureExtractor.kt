@@ -23,12 +23,13 @@ class StatisticalFeatureExtractor : FeatureExtractor {
 
                 val mean = values.average().toFloat()
                 val variance = values.map { (it - mean).pow(2) }.average().toFloat()
-                val std = sqrt(variance)
-                val min = values.minOrNull() ?: 0f
-                val max = values.maxOrNull() ?: 0f
+//                val std = sqrt(variance)
+//                val min = values.minOrNull() ?: 0f
+//                val max = values.maxOrNull() ?: 0f
                 val rms = sqrt(values.map { it * it }.average().toFloat())
 
-                features.addAll(listOf(mean, std, variance, min, max, rms))
+//                features.addAll(listOf(mean, std, variance, min, max, rms))
+                features.addAll(listOf(mean, variance, rms))
             }
 
             features

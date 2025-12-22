@@ -28,7 +28,7 @@ fun collectTouchDynamicFeature(
     val windowSize: Int = AuthConfigManager.config.windowSize
     val windowOverlap: Double = AuthConfigManager.config.windowOverlapRatio
     val denoisers: List<SensorDenoiser> = listOf(LowPassFilterDenoiser())
-    val featureExtractors: List<FeatureExtractor> = listOf(MeanFeatureExtractor())
+    val featureExtractors: List<FeatureExtractor> = listOf(StatisticalFeatureExtractor())
 
     // Safe to use rootView here
     val touchDataCollector = TouchDataCollector(touchEventFlow , sampleCollectionFrequency)

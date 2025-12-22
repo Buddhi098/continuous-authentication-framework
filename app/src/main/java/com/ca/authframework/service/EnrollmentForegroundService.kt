@@ -93,7 +93,7 @@ class EnrollmentForegroundService : Service() {
                     return@launch
                 }
 
-                val result = withTimeout(5 * 60 * 1000) { suspendEnrollment(auth) }
+                val result = withTimeout(30 * 60 * 1000) { suspendEnrollment(auth) }
 
                 val elapsed = SystemClock.elapsedRealtime() - startTime
                 Log.i(TAG, "Enrollment finished in ${elapsed}ms | success=${result.success}")

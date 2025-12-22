@@ -4,162 +4,93 @@ import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.
 import com.ca.continuousauth.utils.Logger
 import kotlin.math.*
 
-/**
- * MicroMovementFeatureExtractor
- *
- * Extracts micro-movement features from high-frequency sensor windows.
- * Features per axis:
- * - Mean absolute delta (MAD)
- * - Standard deviation of delta
- * - Peak count
- * - Zero-crossing rate
- * - RMS (Root Mean Square)
- */
 class MicroMovementFeatureExtractor : FeatureExtractor {
 
     override fun extract(window: List<Pair<Long, List<Float>>>): List<Float> {
         return try {
             if (window.isEmpty()) return emptyList()
-            val axisCount = window.first().second.size
-            val features = mutableListOf<Float>()
 
-            for (axis in 0 until axisCount) {
-                val values = window.map { it.second[axis] }
-
-                features.add(meanAbsoluteDelta(values))
-                features.add(stdDelta(values))
-                features.add(peakCount(values).toFloat())
-                features.add(zeroCrossingRate(values))
-                features.add(rms(values))
-
-                features.add(mean(values))
-                features.add(variance(values))
-                features.add(range(values))
-
-                features.add(meanJerk(values))
-                features.add(jerkRms(values))
-
-                features.add(skewness(values))
-                features.add(kurtosis(values))
-
-                features.add(entropy(values))
-                features.add(slopeSignChanges(values))
-                features.add(peakDensity(values))
+            // 1️⃣ Convert to magnitude signal (FIXED)
+            val rawMag: List<Double> = window.map { (_, values) ->
+                sqrt(values.sumOf { (it * it).toDouble() })
             }
 
-            features
+            // 2️⃣ Remove gravity
+            val mag = removeGravity(rawMag)
+
+            // 3️⃣ Derivatives
+            val velocity = firstDerivative(mag)
+            val acceleration = firstDerivative(velocity)
+            val jerk = firstDerivative(acceleration)
+
+            // 4️⃣ Motion-only features
+            listOf(
+                meanAbs(velocity),
+                rms(velocity),
+                std(velocity),
+
+                meanAbs(acceleration),
+                rms(acceleration),
+
+                meanAbs(jerk),
+                rms(jerk),
+
+                signalEnergy(mag),
+                zeroCrossingRate(mag)
+            )
+
         } catch (ex: Exception) {
-            Logger.e("MicroMovementFeatureExtractor error", ex)
+            Logger.e("MotionDynamicsFeatureExtractor error", ex)
             emptyList()
         }
     }
 
     // ------------------------
-    // Core helpers
+    // Gravity removal
     // ------------------------
 
-    private fun mean(values: List<Float>) =
-        if (values.isEmpty()) 0f else values.average().toFloat()
+    private fun removeGravity(values: List<Double>, alpha: Float = 0.9f): List<Float> {
+        if (values.isEmpty()) return emptyList()
 
-    private fun variance(values: List<Float>): Float {
-        if (values.isEmpty()) return 0f
-        val m = mean(values)
-        return values.map { (it - m).pow(2) }.average().toFloat()
+        val gravity = MutableList(values.size) { 0f }
+        gravity[0] = values[0].toFloat()
+
+        for (i in 1 until values.size) {
+            gravity[i] =
+                (alpha * gravity[i - 1] + (1 - alpha) * values[i]).toFloat()
+        }
+
+        return values.mapIndexed { i, v -> (v - gravity[i]).toFloat() }
     }
 
-    private fun range(values: List<Float>): Float =
-        if (values.isEmpty()) 0f else (values.maxOrNull()!! - values.minOrNull()!!)
+    // ------------------------
+    // Derivatives
+    // ------------------------
 
-    private fun meanAbsoluteDelta(values: List<Float>): Float {
-        if (values.size < 2) return 0f
-        return values.zipWithNext { a, b -> abs(b - a) }.average().toFloat()
+    private fun firstDerivative(values: List<Float>): List<Float> {
+        if (values.size < 2) return emptyList()
+        return values.zipWithNext { a, b -> b - a }
     }
 
-    private fun stdDelta(values: List<Float>): Float {
-        if (values.size < 2) return 0f
-        val deltas = values.zipWithNext { a, b -> b - a }
-        val mean = deltas.average()
-        return sqrt(deltas.map { (it - mean).pow(2) }.average()).toFloat()
-    }
+    // ------------------------
+    // Core metrics
+    // ------------------------
+
+    private fun meanAbs(values: List<Float>): Float =
+        if (values.isEmpty()) 0f else values.map { abs(it) }.average().toFloat()
 
     private fun rms(values: List<Float>): Float =
-        sqrt(values.map { it * it }.average()).toFloat()
+        if (values.isEmpty()) 0f else sqrt(values.map { it * it }.average()).toFloat()
 
-    // ------------------------
-    // Jerk features
-    // ------------------------
-
-    private fun meanJerk(values: List<Float>): Float {
-        if (values.size < 3) return 0f
-        val jerk = values.zipWithNext().zipWithNext { (a, b), (c, _) -> c - 2*b + a }
-        return jerk.map { abs(it) }.average().toFloat()
-    }
-
-    private fun jerkRms(values: List<Float>): Float {
-        if (values.size < 3) return 0f
-        val jerk = values.zipWithNext().zipWithNext { (a, b), (c, _) -> c - 2*b + a }
-        return sqrt(jerk.map { it * it }.average()).toFloat()
-    }
-
-    // ------------------------
-    // Distribution shape
-    // ------------------------
-
-    private fun skewness(values: List<Float>): Float {
+    private fun std(values: List<Float>): Float {
         if (values.size < 2) return 0f
-        val m = mean(values)
-        val std = sqrt(variance(values))
-        if (std == 0f) return 0f
-        return values.map { ((it - m) / std).pow(3) }.average().toFloat()
+        val mean = values.average()
+        return sqrt(values.map { (it - mean).pow(2) }.average()).toFloat()
     }
 
-    private fun kurtosis(values: List<Float>): Float {
-        if (values.size < 2) return 0f
-        val m = mean(values)
-        val std = sqrt(variance(values))
-        if (std == 0f) return 0f
-        return values.map { ((it - m) / std).pow(4) }.average().toFloat()
-    }
-
-    // ------------------------
-    // Complexity measures
-    // ------------------------
-
-    private fun entropy(values: List<Float>): Float {
-        if (values.isEmpty()) return 0f
-        val absVals = values.map { abs(it) }
-        val sum = absVals.sum()
-        if (sum == 0f) return 0f
-        return -absVals.map {
-            val p = it / sum
-            if (p == 0f) 0f else p * ln(p)
-        }.sum()
-    }
-
-    private fun slopeSignChanges(values: List<Float>): Float {
-        if (values.size < 3) return 0f
-        var count = 0
-        for (i in 1 until values.size - 1) {
-            val diff1 = values[i] - values[i - 1]
-            val diff2 = values[i + 1] - values[i]
-            if (diff1 * diff2 < 0) count++
-        }
-        return count.toFloat()
-    }
-
-    private fun peakDensity(values: List<Float>): Float =
-        if (values.isEmpty()) 0f else peakCount(values).toFloat() / values.size
-
-    private fun peakCount(values: List<Float>): Int {
-        if (values.size < 3) return 0
-        var count = 0
-        for (i in 1 until values.size - 1) {
-            if ((values[i] > values[i - 1] && values[i] > values[i + 1]) ||
-                (values[i] < values[i - 1] && values[i] < values[i + 1])
-            ) count++
-        }
-        return count
-    }
+    private fun signalEnergy(values: List<Float>): Float =
+        if (values.isEmpty()) 0f
+        else values.sumOf { (it * it).toDouble() }.toFloat()   // ✅ FIXED
 
     private fun zeroCrossingRate(values: List<Float>): Float {
         if (values.size < 2) return 0f

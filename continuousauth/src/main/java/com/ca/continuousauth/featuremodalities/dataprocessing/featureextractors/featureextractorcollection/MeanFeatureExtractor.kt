@@ -2,7 +2,6 @@ package com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors
 
 import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.FeatureExtractor
 import com.ca.continuousauth.utils.Logger
-import kotlin.math.pow
 import kotlin.math.sqrt
 
 class MeanFeatureExtractor : FeatureExtractor {
@@ -16,15 +15,25 @@ class MeanFeatureExtractor : FeatureExtractor {
             for (axis in 0 until axisCount) {
                 val values = window.map { it.second[axis] }
                 if (values.isEmpty()) {
-                    features.addAll(List(6) { 0f }) // mean, std, var, min, max, rms
+                    features.add(0f)
                     continue
                 }
+                // Compute mean
                 val mean = values.average().toFloat()
-                features.addAll(listOf(mean))
+                features.add(mean)
             }
-            features
+
+            // -------------------------------
+            // Min-Max Scaling to [0,1]
+            // -------------------------------
+            val minVal = features.minOrNull() ?: 0f
+            val maxVal = features.maxOrNull() ?: 1f
+            val range = if (maxVal - minVal == 0f) 1f else maxVal - minVal
+
+            features.map { (it - minVal) / range }
+
         } catch (ex: Exception) {
-            Logger.e("StatisticalFeatureExtractor error", ex)
+            Logger.e("MeanFeatureExtractor error", ex)
             emptyList()
         }
     }

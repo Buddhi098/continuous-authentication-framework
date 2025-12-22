@@ -73,14 +73,12 @@ class TouchDataCollector(
                     val dyAbs = abs(dy)
                     val speedAbs = abs(speed)
                     val durationAbs = abs(durationMs.toFloat())
-                    val avgPressureAbs = abs(avgPressure)
 
                     lastVector = listOf(
                         dxAbs,
                         dyAbs,
                         speedAbs,
                         durationAbs,
-                        avgPressure
                     )
                 }
             }
@@ -99,5 +97,5 @@ class TouchDataCollector(
         }
         .flowOn(dispatcher)
 
-    private fun zeroVector(): List<Float> = List(5) { 0f }
+    private fun zeroVector(): List<Float> = List(4) { 0f }
 }

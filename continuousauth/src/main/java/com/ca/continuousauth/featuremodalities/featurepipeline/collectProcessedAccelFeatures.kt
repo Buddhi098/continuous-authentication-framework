@@ -1,13 +1,17 @@
 package com.ca.continuousauth.featuremodalities.featurepipeline
 
+import AdvancedAccelerometerDenoiser
 import android.content.Context
 import com.ca.continuousauth.config.AuthConfigManager
 import com.ca.continuousauth.featuremodalities.dataprocessing.denoisers.SensorDenoiser
 import com.ca.continuousauth.featuremodalities.dataprocessing.denoisers.denoisePipeline
 import com.ca.continuousauth.featuremodalities.dataprocessing.denoisers.denoisercollection.HighPassFilterDenoiser
 import com.ca.continuousauth.featuremodalities.dataprocessing.denoisers.denoisercollection.LowPassFilterDenoiser
+import com.ca.continuousauth.featuremodalities.dataprocessing.denoisers.denoisercollection.MedianDenoiser
 import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.FeatureExtractor
 import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.featurePipeline
+import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.featureextractorcollection.AccelerometerFeatureExtractor
+import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.featureextractorcollection.BiometricAxisMicroMovementExtractor
 import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.featureextractorcollection.FrequencyDomainFeatureExtractor
 import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.featureextractorcollection.MeanFeatureExtractor
 import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.featureextractorcollection.MicroMovementFeatureExtractor
@@ -31,8 +35,9 @@ fun collectProcessedAccelFeatures(
     val sampleCollectionFrequency: Int = AuthConfigManager.config.sampleCollectionFrequencyHz
     val windowSize: Int = AuthConfigManager.config.windowSize
     val windowOverlap: Double = AuthConfigManager.config.windowOverlapRatio
-    val denoisers: List<SensorDenoiser> = listOf(LowPassFilterDenoiser())
-    val featureExtractors: List<FeatureExtractor> = listOf(MeanFeatureExtractor())
+    val denoisers: List<SensorDenoiser> = listOf(AdvancedAccelerometerDenoiser())
+    val featureExtractors: List<FeatureExtractor> = listOf(AccelerometerFeatureExtractor() ,
+        BiometricAxisMicroMovementExtractor())
 
     val accelerometerCollector = AccelerometerDataCollector(context,sampleCollectionFrequency, dispatcher)
 
