@@ -81,10 +81,10 @@ data class AuthConfig private constructor(
     class Builder {
 
         /* -------------------- Data Collection -------------------- */
-        private var sampleCollectionFrequencyHz: Int = 64
+        private var sampleCollectionFrequencyHz: Int = 100
         private var enrollmentSamples: Int = 2000
-        private var windowSize: Int = 32
-        private var windowOverlapRatio: Double = 0.3
+        private var windowSize: Int = 50
+        private var windowOverlapRatio: Double = 0.5
         private var shouldLogFeatureVector: Boolean = false
 
         /* -------------------- Model Training --------------------- */

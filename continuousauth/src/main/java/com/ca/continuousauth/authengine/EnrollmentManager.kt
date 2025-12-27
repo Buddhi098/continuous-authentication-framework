@@ -19,6 +19,9 @@ class EnrollmentManager(
 ) {
     private val trainValidationRatio = AuthConfigManager.config.trainValidationRatio
     private val enrollmentDataFilterRatio = AuthConfigManager.config.enrollmentDataFilterRatio
+
+    // Step 2: Smooth the scores using AdaptiveScoreDenoiser
+    private val denoiser = AdaptiveScoreDenoiser()
     // --------------------------------------------------
     // Enrollment (Train + Threshold + Persist)
     // --------------------------------------------------
@@ -87,13 +90,13 @@ class EnrollmentManager(
             val shuffled = dataSet.shuffled()
             Logger.d("Original Enrollment Sample Count ${shuffled.size}")
 
-            authModel.runTrainingSession(shuffled)
-            val filteredDataset = filterTightLegitSamples(shuffled, dropRatio = enrollmentDataFilterRatio)
-            Logger.d("Filtered Enrollment Sample Count ${filteredDataset.size}")
+//            authModel.runTrainingSession(shuffled)
+//            val filteredDataset = filterTightLegitSamples(shuffled, dropRatio = enrollmentDataFilterRatio)
+//            Logger.d("Filtered Enrollment Sample Count ${filteredDataset.size}")
 
-            val splitIndex = (filteredDataset.size * trainValidationRatio).toInt()
-            val trainingSet = filteredDataset.subList(0, splitIndex)
-            val validationSet = filteredDataset.subList(splitIndex, filteredDataset.size)
+            val splitIndex = (shuffled.size * trainValidationRatio).toInt()
+            val trainingSet = shuffled.subList(0, splitIndex)
+            val validationSet = shuffled.subList(splitIndex, shuffled.size)
 
             Logger.d("Enrollment started. Train=${trainingSet.size}, Validation=${validationSet.size}")
 
@@ -142,108 +145,109 @@ class EnrollmentManager(
     // --------------------------------------------------
     // Threshold Calculation
     // --------------------------------------------------
-//    private fun calculateThreshold(
-//        validationSet: List<List<Float>>,
-//        factor: Float =8.0f,              // equivalent to k in PyTorch
-//        lowerPercentile: Float = 0f,  // lower percentile for outlier removal
-//        upperPercentile: Float = 0.9f   // upper percentile for outlier removal
-//    ): Float? {
-//        return try {
-//            val scores = validationSet.mapNotNull { authModel.inferScore(it) }
-//            if (scores.isEmpty()) return null
-//
-//            // Sort scores
-//            val sortedScores = scores.sorted()
-//            val n = sortedScores.size
-//
-//            // Compute bounds for outlier removal
-//            val lowIndex = ((n - 1) * lowerPercentile).toInt().coerceIn(0, n - 1)
-//            val highIndex = ((n - 1) * upperPercentile).toInt().coerceIn(0, n - 1)
-//            val low = sortedScores[lowIndex]
-//            val high = sortedScores[highIndex]
-//
-//            // Keep only scores within percentile bounds
-//            val cleanScores = sortedScores.filter { it in low..high }
-//            if (cleanScores.isEmpty()) return null
-//
-//            // Compute median
-//            val median = cleanScores.sorted().let { cs ->
-//                val mid = cs.size / 2
-//                if (cs.size % 2 == 0) (cs[mid - 1] + cs[mid]) / 2f else cs[mid]
-//            }
-//
-//            // Compute MAD (Median Absolute Deviation)
-//            val mad = cleanScores.map { abs(it - median) }.sorted().let { absSorted ->
-//                val mid = absSorted.size / 2
-//                if (absSorted.size % 2 == 0) (absSorted[mid - 1] + absSorted[mid]) / 2f else absSorted[mid]
-//            } + 1e-12f  // to avoid division by zero
-//
-//            median + factor * mad
-//        } catch (e: Exception) {
-//            Logger.e("Threshold calculation error: ${e.message}", e)
-//            null
-//        }
-//    }
-
     private fun calculateThreshold(
         validationSet: List<List<Float>>,
-        factor: Float = 6.0f,              // k * std
-        lowerPercentile: Float = 0.0f,
-        upperPercentile: Float = 0.95f
+        factor: Float = 8.0f,            // MAD multiplier
+        lowerPercentile: Float = 0f,     // outlier lower bound
+        upperPercentile: Float = 0.9f    // outlier upper bound
     ): Float? {
         return try {
+            // Step 1: Get raw scores from validation set
+            val rawScores = validationSet.mapNotNull { authModel.inferScore(it) }
+            if (rawScores.isEmpty()) return null
 
-            // --------------------------------------------------
-            // 1. Infer + denoise all scores
-            // --------------------------------------------------
-            val scoreDenoiser = AdaptiveScoreDenoiser()
-            scoreDenoiser.reset()
+            val smoothScores = rawScores.map { denoiser.denoise(it) }
 
-            val denoisedScores = validationSet.mapNotNull { vector ->
-                authModel.inferScore(vector)?.let { raw ->
-                    scoreDenoiser.denoise(raw)
-                }
-            }
-
-            if (denoisedScores.isEmpty()) return null
-
-            // --------------------------------------------------
-            // 2. Percentile-based outlier removal
-            // --------------------------------------------------
-            val sorted = denoisedScores.sorted()
-            val n = sorted.size
-
+            // Step 3: Sort and filter scores based on percentiles
+            val sortedScores = smoothScores.sorted()
+            val n = sortedScores.size
             val lowIndex = ((n - 1) * lowerPercentile).toInt().coerceIn(0, n - 1)
             val highIndex = ((n - 1) * upperPercentile).toInt().coerceIn(0, n - 1)
+            val low = sortedScores[lowIndex]
+            val high = sortedScores[highIndex]
+            val filteredScores = sortedScores.filter { it in low..high }
+            if (filteredScores.isEmpty()) return null
 
-            val low = sorted[lowIndex]
-            val high = sorted[highIndex]
+            // Step 4: Median
+            val median = filteredScores.let { fs ->
+                val mid = fs.size / 2
+                if (fs.size % 2 == 0) (fs[mid - 1] + fs[mid]) / 2f else fs[mid]
+            }
 
-            val cleanScores = sorted.filter { it in low..high }
-            if (cleanScores.isEmpty()) return null
+            // Step 5: Median Absolute Deviation (MAD)
+            val mad = filteredScores.map { abs(it - median) }.sorted().let { absSorted ->
+                val mid = absSorted.size / 2
+                if (absSorted.size % 2 == 0) (absSorted[mid - 1] + absSorted[mid]) / 2f else absSorted[mid]
+            } + 1e-12f // avoid division by zero
 
-            // --------------------------------------------------
-            // 3. Mean + Standard Deviation
-            // --------------------------------------------------
-            val mean = cleanScores.average().toFloat()
-
-            val variance = cleanScores
-                .map { (it - mean) * (it - mean) }
-                .average()
-                .toFloat()
-
-            val std = kotlin.math.sqrt(variance)
-
-            // --------------------------------------------------
-            // 4. Final threshold
-            // --------------------------------------------------
-            mean + factor * std
-
+            // Step 6: Threshold = median + factor * MAD
+            median + factor * mad
         } catch (e: Exception) {
-            Logger.e("Threshold calculation failed", e)
+            Logger.e("Threshold calculation error: ${e.message}", e)
             null
         }
     }
+
+
+//    private fun calculateThreshold(
+//        validationSet: List<List<Float>>,
+//        factor: Float = 6.0f,              // k * std
+//        lowerPercentile: Float = 0.0f,
+//        upperPercentile: Float = 0.95f
+//    ): Float? {
+//        return try {
+//
+//            // --------------------------------------------------
+//            // 1. Infer + denoise all scores
+//            // --------------------------------------------------
+//            val scoreDenoiser = AdaptiveScoreDenoiser()
+//            scoreDenoiser.reset()
+//
+//            val denoisedScores = validationSet.mapNotNull { vector ->
+//                authModel.inferScore(vector)?.let { raw ->
+//                    scoreDenoiser.denoise(raw)
+//                }
+//            }
+//
+//            if (denoisedScores.isEmpty()) return null
+//
+//            // --------------------------------------------------
+//            // 2. Percentile-based outlier removal
+//            // --------------------------------------------------
+//            val sorted = denoisedScores.sorted()
+//            val n = sorted.size
+//
+//            val lowIndex = ((n - 1) * lowerPercentile).toInt().coerceIn(0, n - 1)
+//            val highIndex = ((n - 1) * upperPercentile).toInt().coerceIn(0, n - 1)
+//
+//            val low = sorted[lowIndex]
+//            val high = sorted[highIndex]
+//
+//            val cleanScores = sorted.filter { it in low..high }
+//            if (cleanScores.isEmpty()) return null
+//
+//            // --------------------------------------------------
+//            // 3. Mean + Standard Deviation
+//            // --------------------------------------------------
+//            val mean = cleanScores.average().toFloat()
+//
+//            val variance = cleanScores
+//                .map { (it - mean) * (it - mean) }
+//                .average()
+//                .toFloat()
+//
+//            val std = kotlin.math.sqrt(variance)
+//
+//            // --------------------------------------------------
+//            // 4. Final threshold
+//            // --------------------------------------------------
+//            mean + factor * std
+//
+//        } catch (e: Exception) {
+//            Logger.e("Threshold calculation failed", e)
+//            null
+//        }
+//    }
 
     // --------------------------------------------------
     // Persistent Storage
