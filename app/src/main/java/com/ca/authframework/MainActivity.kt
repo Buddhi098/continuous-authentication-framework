@@ -88,7 +88,7 @@ class MainActivity : ComponentActivity() {
 
                 /* ---------------- MAIN APP UI (UNCHANGED) ---------------- */
                 Scaffold(
-                    topBar = { AppTopBar(status = "Active", score = "—", currentAuthPercentage = "—") },
+                    topBar = { AppTopBar(status = currentAuthStatus, score = currentScore , currentAuthPercentage = currentAuthPercentage) },
                     bottomBar = { BottomNavigationBar(navController) }
                 ) { innerPadding ->
 
