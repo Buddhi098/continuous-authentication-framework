@@ -17,14 +17,17 @@ import kotlin.math.abs
 class TouchDataCollector(
     private val touchEventFlow: Flow<TouchEventData>?,
     private val frequencyHz: Int = AuthConfigManager.config.sampleCollectionFrequencyHz,
-    private val dispatcher: CoroutineDispatcher = Dispatchers.Default
+    private val dispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) : RawDataCollector<List<Float>> {
 
     override val modalityName: String = "TOUCH"
+    private val repeatitionLimit: Int = AuthConfigManager.config.windowSize * 10
 
     override fun start(): Flow<Pair<Long, List<Float>>> = callbackFlow {
         val minIntervalMs = (1000 / frequencyHz.toLong())
         var lastVector = zeroVector()
+        var isActionStart = false
+        var repeatCount = 0
 
         // Gesture state
         var startX = 0f
@@ -50,6 +53,8 @@ class TouchDataCollector(
                     totalDistance = 0f
                     pressureSum = event.pressure
                     pressureCount = 1
+
+                    isActionStart = true
                 }
 
                 2 -> { // ACTION_MOVE
@@ -72,7 +77,7 @@ class TouchDataCollector(
                     val dxAbs = abs(dx)
                     val dyAbs = abs(dy)
                     val speedAbs = abs(speed)
-                    val durationAbs = abs(durationMs.toFloat())
+                    val durationAbs = abs(durationMs.toFloat() / 1000f)  // duration in seconds
 
                     lastVector = listOf(
                         dxAbs,
@@ -80,15 +85,27 @@ class TouchDataCollector(
                         speedAbs,
                         durationAbs,
                     )
+
+//                    Logger.d("Emitted raw touchdynamic data : $lastVector")
                 }
             }
         }?.launchIn(this)
 
         while (isActive) {
-            trySend(System.currentTimeMillis() to lastVector).isSuccess
+            if(isActionStart){
+                trySend(System.currentTimeMillis() to lastVector).isSuccess
+                isActionStart = false
+                repeatCount = 0
+            }else{
+                if(repeatCount <= repeatitionLimit){
+                    trySend(System.currentTimeMillis() to lastVector).isSuccess
+                    repeatCount++
+                }else{
+                    trySend(System.currentTimeMillis() to zeroVector()).isSuccess
+                }
+            }
             delay(minIntervalMs)
         }
-
         awaitClose { job?.cancel() }
     }
         .catch { ex ->

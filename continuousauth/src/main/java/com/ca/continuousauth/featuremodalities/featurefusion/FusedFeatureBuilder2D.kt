@@ -39,7 +39,11 @@ object FusedFeatureBuilder2D {
                 return emptyList()
             }
 
-//            Logger.d("FusedFeatureBuilder2D: Using aligned sample count = $minSamples")
+            // --- Print modality dimensions once ---
+            modalityFeatures.forEach { (modalityName, featureList) ->
+                val dim = featureList.firstOrNull()?.size ?: 0
+                Logger.d("FusedFeatureBuilder2D: Modality=$modalityName, feature dimension=$dim")
+            }
 
             val fusedMatrix = mutableListOf<List<Float>>()
 

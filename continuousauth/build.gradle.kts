@@ -53,5 +53,7 @@ dependencies {
     implementation("org.tensorflow:tensorflow-lite:2.14.0")
     // REQUIRED: Support for training ops (Select TF Ops)
     implementation("org.tensorflow:tensorflow-lite-select-tf-ops:2.14.0")
+    // Wavelet transform library for Java (includes DWT/IDWT)
+    implementation("de.sciss:jwave:1.0.3")
 
 }

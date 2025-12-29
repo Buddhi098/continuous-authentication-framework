@@ -4,22 +4,15 @@ import android.content.Context
 import com.ca.continuousauth.config.AuthConfigManager
 import com.ca.continuousauth.featuremodalities.dataprocessing.denoisers.SensorDenoiser
 import com.ca.continuousauth.featuremodalities.dataprocessing.denoisers.denoisePipeline
-import com.ca.continuousauth.featuremodalities.dataprocessing.denoisers.denoisercollection.AdvancedGyroscopeDenoiser
-import com.ca.continuousauth.featuremodalities.dataprocessing.denoisers.denoisercollection.HighPassFilterDenoiser
-import com.ca.continuousauth.featuremodalities.dataprocessing.denoisers.denoisercollection.LowPassFilterDenoiser
-import com.ca.continuousauth.featuremodalities.dataprocessing.denoisers.denoisercollection.MedianDenoiser
 import com.ca.continuousauth.featuremodalities.dataprocessing.denoisers.denoisercollection.WaveletSensorDenoiser
 import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.FeatureExtractor
 import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.featurePipeline
+import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.featureextractorcollection.AccelerometerFeatureExtractor
 import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.featureextractorcollection.BiometricAxisMicroMovementExtractor
-import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.featureextractorcollection.FrequencyDomainFeatureExtractor
-import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.featureextractorcollection.GyroscopeFeatureExtractor
-import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.featureextractorcollection.MeanFeatureExtractor
-import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.featureextractorcollection.MicroMovementFeatureExtractor
+import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.featureextractorcollection.MicroOrientationFeatureExtractor
 import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.featureextractorcollection.StatisticalFeatureExtractor
-import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.featureextractorcollection.TimeDomainFeatureExtractor
 import com.ca.continuousauth.featuremodalities.dataprocessing.windowing.windowedFlow
-import com.ca.continuousauth.featuremodalities.rawdatacollectors.GyroscopeDataCollector
+import com.ca.continuousauth.featuremodalities.rawdatacollectors.LinearAccelerometerDataCollector
 import com.ca.continuousauth.utils.Logger
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -28,7 +21,7 @@ import kotlinx.coroutines.flow.*
 /**
  * Full pipeline to collect accelerometer features as a Flow.
  */
-fun collectProcessedGyroFeatures(
+fun collectProcessedTotalAccelFeatures(
     context: Context,
     dispatcher: CoroutineDispatcher = Dispatchers.Default
 ): Flow<List<Float>> {
@@ -37,12 +30,11 @@ fun collectProcessedGyroFeatures(
     val windowSize: Int = AuthConfigManager.config.windowSize
     val windowOverlap: Double = AuthConfigManager.config.windowOverlapRatio
     val denoisers: List<SensorDenoiser> = listOf(WaveletSensorDenoiser())
-    val featureExtractors: List<FeatureExtractor> = listOf(GyroscopeFeatureExtractor(),
-        BiometricAxisMicroMovementExtractor())
+    val featureExtractors: List<FeatureExtractor> = listOf(MicroOrientationFeatureExtractor())
 
-    val gyroscopeDataCollector = GyroscopeDataCollector(context,sampleCollectionFrequency, dispatcher)
+    val accelerometerCollector = LinearAccelerometerDataCollector(context,sampleCollectionFrequency, dispatcher)
 
-    return gyroscopeDataCollector.start()
+    return accelerometerCollector.start()
         .windowedFlow(windowSize, windowOverlap)
         .denoisePipeline(denoisers)
         .featurePipeline(featureExtractors)

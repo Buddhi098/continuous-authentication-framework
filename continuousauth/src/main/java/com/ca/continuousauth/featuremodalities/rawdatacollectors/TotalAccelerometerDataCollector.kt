@@ -19,26 +19,26 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
 
 /**
- * Gyroscope data collector implementing RawDataCollector interface.
+ * Accelerometer data collector implementing RawDataCollector interface.
  * Emits each reading as a List<Float> along with its timestamp (in milliseconds),
  * at a specified frequency.
  *
- * If gyroscope sensor is NOT available, emits (0f, 0f, 0f) continuously
- * instead of crashing the data collection pipeline.
+ * If accelerometer sensor is NOT available, emits (0f, 0f, 0f)
+ * instead of crashing the data collection system.
  */
-class GyroscopeDataCollector(
+class TotalAccelerometerDataCollector(
     context: Context,
     private val frequencyHz: Int = AuthConfigManager.config.sampleCollectionFrequencyHz,
     private val dispatcher: CoroutineDispatcher = Dispatchers.Default
 ) : RawDataCollector<List<Float>> {
 
-    override val modalityName: String = "GYROSCOPE"
+    override val modalityName: String = "TOTAL_ACCELEROMETER"
 
-    private val sensorManager: SensorManager =
+    private val sensorManager =
         context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
 
-    private val gyroscope: Sensor? =
-        sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
+    private val accelerometer: Sensor? =
+        sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
 
     override fun start(): Flow<Pair<Long, List<Float>>> = callbackFlow {
 
@@ -46,10 +46,10 @@ class GyroscopeDataCollector(
         val samplingPeriodUs = (1_000_000 / frequencyHz)
 
         // ------------------------------------------------
-        // CASE 1: Gyroscope NOT available → emit zeros
+        // CASE 1: Accelerometer NOT available
         // ------------------------------------------------
-        if (gyroscope == null) {
-            Logger.e("Gyroscope not available. Emitting zero values.")
+        if (accelerometer == null) {
+            Logger.e("Accelerometer not available. Emitting zero values.")
 
             val zeroJob = launch {
                 while (true) {
@@ -59,16 +59,12 @@ class GyroscopeDataCollector(
                 }
             }
 
-            awaitClose {
-                Logger.d("Stopping zero gyroscope emission")
-                zeroJob.cancel()
-            }
-
+            awaitClose { zeroJob.cancel() }
             return@callbackFlow
         }
 
         // ------------------------------------------------
-        // CASE 2: Gyroscope available
+        // CASE 2: Accelerometer available
         // ------------------------------------------------
         val listener = object : SensorEventListener {
 
@@ -83,38 +79,38 @@ class GyroscopeDataCollector(
 
                 trySend(timestamp to rawData)
                     .onFailure { err ->
-                        Logger.e("Failed to emit gyroscope data", err)
+                        Logger.e("Failed to emit accelerometer data", err)
                     }
             }
 
             override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
-                Logger.d("Gyroscope accuracy changed: $accuracy")
+                Logger.d("Accelerometer accuracy changed: $accuracy")
             }
         }
 
-        Logger.d("Registering gyroscope listener at ${frequencyHz}Hz")
+        Logger.d("Registering accelerometer listener at ${frequencyHz}Hz")
 
         try {
             sensorManager.registerListener(
                 listener,
-                gyroscope,
+                accelerometer,
                 samplingPeriodUs
             )
         } catch (ex: Exception) {
-            Logger.e("Failed to register gyroscope listener", ex)
+            Logger.e("Failed to register accelerometer listener", ex)
         }
 
         awaitClose {
             try {
-                Logger.d("Unregistering gyroscope listener")
+                Logger.d("Unregistering accelerometer listener")
                 sensorManager.unregisterListener(listener)
             } catch (ex: Exception) {
-                Logger.e("Error while unregistering gyroscope listener", ex)
+                Logger.e("Error unregistering accelerometer listener", ex)
             }
         }
     }
         .catch { ex ->
-            Logger.e("Gyroscope flow error", ex)
+            Logger.e("Accelerometer flow error", ex)
         }
         .flowOn(dispatcher)
 }

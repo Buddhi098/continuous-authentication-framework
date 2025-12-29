@@ -147,43 +147,48 @@ class EnrollmentManager(
     // --------------------------------------------------
     private fun calculateThreshold(
         validationSet: List<List<Float>>,
-        factor: Float = 8.0f,            // MAD multiplier
-        lowerPercentile: Float = 0f,     // outlier lower bound
-        upperPercentile: Float = 0.9f    // outlier upper bound
+        factor: Float = 7.0f,             // MAD multiplier
+        lowerPercentile: Float = 0.05f,   // exclude extreme low outliers
+        upperPercentile: Float = 0.95f    // exclude extreme high outliers
     ): Float? {
         return try {
-            // Step 1: Get raw scores from validation set
+            // 1️⃣ Compute raw scores
             val rawScores = validationSet.mapNotNull { authModel.inferScore(it) }
             if (rawScores.isEmpty()) return null
 
+            // 2️⃣ Apply denoising
             val smoothScores = rawScores.map { denoiser.denoise(it) }
-
-            // Step 3: Sort and filter scores based on percentiles
             val sortedScores = smoothScores.sorted()
             val n = sortedScores.size
+
+            // 3️⃣ Clip extreme percentiles
             val lowIndex = ((n - 1) * lowerPercentile).toInt().coerceIn(0, n - 1)
             val highIndex = ((n - 1) * upperPercentile).toInt().coerceIn(0, n - 1)
-            val low = sortedScores[lowIndex]
-            val high = sortedScores[highIndex]
-            val filteredScores = sortedScores.filter { it in low..high }
+            val filteredScores = sortedScores.subList(lowIndex, highIndex + 1)
             if (filteredScores.isEmpty()) return null
 
-            // Step 4: Median
+            // 4️⃣ Compute median
             val median = filteredScores.let { fs ->
                 val mid = fs.size / 2
                 if (fs.size % 2 == 0) (fs[mid - 1] + fs[mid]) / 2f else fs[mid]
             }
 
-            // Step 5: Median Absolute Deviation (MAD)
+            // 5️⃣ Compute MAD
             val mad = filteredScores.map { abs(it - median) }.sorted().let { absSorted ->
                 val mid = absSorted.size / 2
                 if (absSorted.size % 2 == 0) (absSorted[mid - 1] + absSorted[mid]) / 2f else absSorted[mid]
-            } + 1e-12f // avoid division by zero
+            }.coerceAtLeast(1e-12f) // avoid zero
 
-            // Step 6: Threshold = median + factor * MAD
-            median + factor * mad
+            // 6️⃣ Compute interquartile range (IQR) for added robustness
+            val q1 = filteredScores[(filteredScores.size * 0.25).toInt()]
+            val q3 = filteredScores[(filteredScores.size * 0.75).toInt()]
+            val iqr = (q3 - q1).coerceAtLeast(1e-12f)
+
+            // 7️⃣ Final threshold (median + factor*MAD, capped by IQR for stability)
+            val threshold = median + factor * mad
+            threshold.coerceAtMost(q3 + 3 * iqr)  // prevent runaway high thresholds
         } catch (e: Exception) {
-            Logger.e("Threshold calculation error: ${e.message}", e)
+            Logger.e("Robust threshold calculation error: ${e.message}", e)
             null
         }
     }

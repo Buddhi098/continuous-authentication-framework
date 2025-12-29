@@ -135,9 +135,17 @@ class ContinuousAuth(
                         saveCollectionState()
                         return@collect
                     }
+                    // -------------------------------
+                    // 🔒 Filter illegal feature vectors
+                    // -------------------------------
+                    if (!isValidFeatureVector(vector)) {
+                        Logger.d("Dropped invalid feature vector: $vector")
+                        return@collect
+                    }
+
                     // --- Check before adding to prevent extra sample ---
                     if (collectedList.size >= enrollmentSamples) {
-                        Logger.d("Training sample collection completed.")
+                        Logger.d("Training sample collection completed. | Sample count : ${collectedList.size}}")
                         _isCollecting.value = false
                         remainingSamples = 0
                         clearCollectionState()
@@ -165,6 +173,17 @@ class ContinuousAuth(
         }
     }
 
+    private fun isValidFeatureVector(
+        vector: List<Float>,
+        expectedSize: Int? = null
+    ): Boolean {
+        if (vector.isEmpty()) return false
+        if (expectedSize != null && vector.size != expectedSize) return false
+
+        return vector.all { v ->
+            !v.isNaN() && !v.isInfinite()
+        }
+    }
 
     fun pauseCollecting() {
         if (!_isCollecting.value || _isPaused.value) return
@@ -283,6 +302,12 @@ class ContinuousAuth(
                 try {
                     featureFlow.collect { vector ->
                         try {
+
+                            if (!isValidFeatureVector(vector)) {
+                                Logger.d("Dropped invalid feature vector: $vector")
+                                return@collect
+                            }
+
                             // Convert 1D vector to 2D list with a single row
                             val vector2D: List<List<Float>> = listOf(vector)
                             val startTime1 = System.nanoTime()

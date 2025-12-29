@@ -8,8 +8,9 @@ import com.ca.continuousauth.featuremodalities.dataprocessing.scalers.MinMaxScal
 import com.ca.continuousauth.featuremodalities.dataprocessing.scalers.Scaler
 import com.ca.continuousauth.featuremodalities.dataprocessing.scalers.StandardScaler
 import com.ca.continuousauth.featuremodalities.featurefusion.FusedFeatureBuilder2D
-import com.ca.continuousauth.featuremodalities.featurepipeline.collectProcessedAccelFeatures
 import com.ca.continuousauth.featuremodalities.featurepipeline.collectProcessedGyroFeatures
+import com.ca.continuousauth.featuremodalities.featurepipeline.collectProcessedLinearAccelFeatures
+import com.ca.continuousauth.featuremodalities.featurepipeline.collectProcessedTotalAccelFeatures
 import com.ca.continuousauth.featuremodalities.featurepipeline.collectTouchDynamicFeature
 import com.ca.continuousauth.states.TouchEventData
 import com.ca.continuousauth.utils.Logger
@@ -30,56 +31,57 @@ class FeatureModel {
      * @param featureCount Number of fused samples to collect
      * @return List of fused feature vectors
      */
-    suspend fun getFeatureVectors(context: Context, featureCount: Int , touchEventFlow: Flow<TouchEventData>?): List<List<Float>> {
-
-        // Define flows for each modality
-        val accelFlow: Flow<List<Float>> = collectProcessedAccelFeatures(context)
-        val gyroFlow: Flow<List<Float>> = collectProcessedGyroFeatures(context)
-        val touchFlow: Flow<List<Float>> = collectTouchDynamicFeature(touchEventFlow)
-
-        // Combine all flows dynamically
-        val fusedFlow: Flow<List<Float>> = combine(accelFlow, gyroFlow ,touchFlow) { arrays ->
-            val fusedMap = mapOf(
-                "accel" to listOf(arrays[0]),
-                "gyro" to listOf(arrays[1]),
-                "touch" to listOf(arrays[3])
-//                "magnetometer" to listOf(arrays[2])
-            )
-            FusedFeatureBuilder2D.buildFusedMatrix(fusedMap).first() // Take single fused vector
-        }
-
-        // Collect only the requested number of fused samples
-        val fusedVectors: List<List<Float>> = fusedFlow.take(featureCount).toList()
-
-        Logger.d("Output fused vector dimention length = ${fusedVectors[0].size}")
-        Logger.d("Output fused vector number of samples = ${fusedVectors.size}")
-        Logger.d("Output fused vector [0]= ${fusedVectors[0]}")
-        return fusedVectors
-    }
-    /**
-     * Returns a continuous Flow emitting fused feature vectors one by one.
-     * This is ideal for real-time inference.
-     */
-    fun getFeatureFlow(context: Context , touchEventFlow: Flow<TouchEventData>?): Flow<List<Float>> {
-
-        // Individual modality feature flows
-        val accelFlow: Flow<List<Float>> = collectProcessedAccelFeatures(context)
-        val gyroFlow: Flow<List<Float>> = collectProcessedGyroFeatures(context)
-        val touchFlow: Flow<List<Float>> = collectTouchDynamicFeature(touchEventFlow)
-
-        // Combine them into a fused feature vector
-        return combine(accelFlow, gyroFlow,  touchFlow) { accel, gyro,touch ->
-
-            val fusedMap = mapOf(
-                "accel" to listOf(accel),
-                "gyro" to listOf(gyro),
-                "touch" to listOf(touch)
-            )
-
-            // Build a single fused feature vector
-            FusedFeatureBuilder2D.buildFusedMatrix(fusedMap).first()
-        }
-    }
+//    suspend fun getFeatureVectors(context: Context, featureCount: Int , touchEventFlow: Flow<TouchEventData>?): List<List<Float>> {
+//
+//        // Define flows for each modality
+//        val linearAccelFlow: Flow<List<Float>> = collectProcessedLinearAccelFeatures(context)
+//        val gyroFlow: Flow<List<Float>> = collectProcessedGyroFeatures(context)
+//        val touchFlow: Flow<List<Float>> = collectTouchDynamicFeature(touchEventFlow)
+//
+//
+//        // Combine all flows dynamically
+//        val fusedFlow: Flow<List<Float>> = combine(linearAccelFlow, gyroFlow ,touchFlow) { arrays ->
+//            val fusedMap = mapOf(
+//                "accel" to listOf(arrays[0]),
+//                "gyro" to listOf(arrays[1]),
+//                "touch" to listOf(arrays[3])
+////                "magnetometer" to listOf(arrays[2])
+//            )
+//            FusedFeatureBuilder2D.buildFusedMatrix(fusedMap).first() // Take single fused vector
+//        }
+//
+//        // Collect only the requested number of fused samples
+//        val fusedVectors: List<List<Float>> = fusedFlow.take(featureCount).toList()
+//
+//        Logger.d("Output fused vector dimention length = ${fusedVectors[0].size}")
+//        Logger.d("Output fused vector number of samples = ${fusedVectors.size}")
+//        Logger.d("Output fused vector [0]= ${fusedVectors[0]}")
+//        return fusedVectors
+//    }
+//    /**
+//     * Returns a continuous Flow emitting fused feature vectors one by one.
+//     * This is ideal for real-time inference.
+//     */
+//    fun getFeatureFlow(context: Context , touchEventFlow: Flow<TouchEventData>?): Flow<List<Float>> {
+//
+//        // Individual modality feature flows
+//        val accelFlow: Flow<List<Float>> = collectProcessedAccelFeatures(context)
+//        val gyroFlow: Flow<List<Float>> = collectProcessedGyroFeatures(context)
+//        val touchFlow: Flow<List<Float>> = collectTouchDynamicFeature(touchEventFlow)
+//
+//        // Combine them into a fused feature vector
+//        return combine(accelFlow, gyroFlow,  touchFlow) { accel, gyro,touch ->
+//
+//            val fusedMap = mapOf(
+//                "accel" to listOf(accel),
+//                "gyro" to listOf(gyro),
+//                "touch" to listOf(touch)
+//            )
+//
+//            // Build a single fused feature vector
+//            FusedFeatureBuilder2D.buildFusedMatrix(fusedMap).first()
+//        }
+//    }
 
     fun getFeatureFlowAtFrequency(
         context: Context,
@@ -98,14 +100,16 @@ class FeatureModel {
         val intervalMs: Long = (1000.0 / AuthenticationFrequencyHz).toLong()
 
         // Individual modality feature flows
-        val accelFlow = collectProcessedAccelFeatures(context)
+        val linearAccelFlow = collectProcessedLinearAccelFeatures(context)
         val gyroFlow = collectProcessedGyroFeatures(context)
         val touchFlow = collectTouchDynamicFeature(touchEventFlow)
+//        val totalAccelFlow = collectProcessedTotalAccelFeatures(context)
 
         // Combine flows
-        val combinedFlow = combine(accelFlow, gyroFlow,touchFlow) { accel, gyro,  touch ->
+        val combinedFlow = combine(linearAccelFlow, gyroFlow,touchFlow) { linearAccel, gyro,  touch ->
             val fusedMap = mapOf(
-                "accel" to listOf(accel),
+                "linearAccel" to listOf(linearAccel),
+//                "toalAccel" to listOf(toalAccel),
                 "gyro" to listOf(gyro),
                 "touch" to listOf(touch),
             )

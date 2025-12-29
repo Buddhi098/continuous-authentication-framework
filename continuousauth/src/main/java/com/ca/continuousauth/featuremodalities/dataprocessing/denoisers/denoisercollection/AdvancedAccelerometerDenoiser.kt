@@ -6,11 +6,11 @@ import kotlin.math.sqrt
 import kotlin.math.tanh
 
 class AdvancedAccelerometerDenoiser(
-    private val baseHighPassAlpha: Float = 0.1f,
-    private val lowPassAlpha: Float = 0.2f,
-    private val madMultiplier: Float = 3.0f,
-    private val gainFactor: Float = 8f,
-    private val historySize: Int = 20
+    private val baseHighPassAlpha: Float = 0.6f,
+    private val lowPassAlpha: Float = 0.4f,
+    private val madMultiplier: Float = 10.0f,
+    private val gainFactor: Float = 3f,
+    private val historySize: Int = 15
 ) : SensorDenoiser {
 
     private val intensityHistory = ArrayDeque<Float>()
@@ -41,8 +41,8 @@ class AdvancedAccelerometerDenoiser(
         }
 
         val endTime = System.nanoTime()
-        Logger.d("MicroMovementAccelerometerDenoiser -> denoiseWindow executed in %.3f ms"
-            .format((endTime - startTime) / 1_000_000.0))
+//        Logger.d("MicroMovementAccelerometerDenoiser -> denoiseWindow executed in %.3f ms"
+//            .format((endTime - startTime) / 1_000_000.0))
 
         return denoised
     }
@@ -71,7 +71,7 @@ class AdvancedAccelerometerDenoiser(
     }
 
     private fun computeDynamicIntensityThreshold(): Float {
-        if (intensityHistory.size < 5) return 0.2f // safe minimum
+        if (intensityHistory.size < historySize) return 0.02f // safe minimum
         val sorted = intensityHistory.sorted()
         val median = sorted[sorted.size / 2]
         val mad = sorted.map { abs(it - median) }.sorted()[sorted.size / 2]

@@ -26,74 +26,61 @@ import kotlinx.coroutines.launch
  * If accelerometer sensor is NOT available, emits (0f, 0f, 0f)
  * instead of crashing the data collection system.
  */
-class AccelerometerDataCollector(
+class LinearAccelerometerDataCollector(
     context: Context,
     private val frequencyHz: Int = AuthConfigManager.config.sampleCollectionFrequencyHz,
     private val dispatcher: CoroutineDispatcher = Dispatchers.Default
 ) : RawDataCollector<List<Float>> {
 
-    override val modalityName: String = "ACCELEROMETER"
+    override val modalityName: String = "LINEAR_ACCELEROMETER"
 
-    private val sensorManager: SensorManager =
+    private val sensorManager =
         context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
 
     private val accelerometer: Sensor? =
-        sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+        sensorManager.getDefaultSensor(Sensor.TYPE_LINEAR_ACCELERATION)
 
     override fun start(): Flow<Pair<Long, List<Float>>> = callbackFlow {
 
-        val minIntervalMs = (1000 / frequencyHz).toLong()
+        // Convert Hz → microseconds (SensorManager requirement)
+        val samplingPeriodUs = (1_000_000 / frequencyHz)
 
         // ------------------------------------------------
-        // CASE 1: Accelerometer NOT available → emit zeros
+        // CASE 1: Accelerometer NOT available
         // ------------------------------------------------
         if (accelerometer == null) {
             Logger.e("Accelerometer not available. Emitting zero values.")
 
-            val zeroEmissionJob = this@callbackFlow.launch {
+            val zeroJob = launch {
                 while (true) {
                     val now = System.currentTimeMillis()
                     trySend(now to listOf(0f, 0f, 0f))
-                        .onFailure { err ->
-                            Logger.e("Failed to emit zero accelerometer data", err)
-                        }
-                    delay(minIntervalMs)
+                    delay(1000L / frequencyHz)
                 }
             }
 
-            awaitClose {
-                Logger.d("Stopping zero accelerometer emission")
-                zeroEmissionJob.cancel()
-            }
-
+            awaitClose { zeroJob.cancel() }
             return@callbackFlow
         }
 
         // ------------------------------------------------
         // CASE 2: Accelerometer available
         // ------------------------------------------------
-        var lastEmissionTime = 0L
-
         val listener = object : SensorEventListener {
 
-            override fun onSensorChanged(event: SensorEvent?) {
-                if (event == null) return
+            override fun onSensorChanged(event: SensorEvent) {
+                val timestamp = System.currentTimeMillis()
 
-                val currentTimeMs = System.currentTimeMillis()
-                if (currentTimeMs - lastEmissionTime >= minIntervalMs) {
-                    lastEmissionTime = currentTimeMs
+                val rawData = listOf(
+                    event.values[0],
+                    event.values[1],
+                    event.values[2]
+                )
 
-                    val rawData = listOf(
-                        event.values[0],
-                        event.values[1],
-                        event.values[2]
-                    )
-
-                    trySend(currentTimeMs to rawData)
-                        .onFailure { err ->
-                            Logger.e("Failed to emit accelerometer data", err)
-                        }
-                }
+                trySend(timestamp to rawData)
+                    .onFailure { err ->
+                        Logger.e("Failed to emit accelerometer data", err)
+                    }
             }
 
             override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
@@ -107,7 +94,7 @@ class AccelerometerDataCollector(
             sensorManager.registerListener(
                 listener,
                 accelerometer,
-                SensorManager.SENSOR_DELAY_FASTEST
+                samplingPeriodUs
             )
         } catch (ex: Exception) {
             Logger.e("Failed to register accelerometer listener", ex)
@@ -118,12 +105,11 @@ class AccelerometerDataCollector(
                 Logger.d("Unregistering accelerometer listener")
                 sensorManager.unregisterListener(listener)
             } catch (ex: Exception) {
-                Logger.e("Error while unregistering accelerometer listener", ex)
+                Logger.e("Error unregistering accelerometer listener", ex)
             }
         }
     }
         .catch { ex ->
-            // Defensive: do NOT crash upstream collectors
             Logger.e("Accelerometer flow error", ex)
         }
         .flowOn(dispatcher)
