@@ -85,6 +85,20 @@ class MainActivity : ComponentActivity() {
             AuthframeworkTheme {
 
                 val navController = rememberNavController()
+                val currentAuthStatus =
+                    if ((evaluationRunning || isAuthRunning) && lastAuthResult != null) {
+                        if (lastAuthResult.isAuthenticated) "Authenticated" else "Rejected"
+                    } else "Unknown"
+
+                val currentScore =
+                    if ((evaluationRunning || isAuthRunning) && lastAuthResult != null) {
+                        "%.3f".format(lastAuthResult.score)
+                    } else "N/A"
+
+                val currentAuthPercentage =
+                    if ((evaluationRunning || isAuthRunning) && lastAuthResult?.authPercentage != null) {
+                        "%.2f%%".format(lastAuthResult.authPercentage)
+                    } else "N/A"
 
                 /* ---------------- MAIN APP UI (UNCHANGED) ---------------- */
                 Scaffold(
