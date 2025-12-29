@@ -147,9 +147,9 @@ class EnrollmentManager(
     // --------------------------------------------------
     private fun calculateThreshold(
         validationSet: List<List<Float>>,
-        factor: Float = 7.0f,             // MAD multiplier
+        factor: Float = 6.0f,             // MAD multiplier
         lowerPercentile: Float = 0.05f,   // exclude extreme low outliers
-        upperPercentile: Float = 0.95f    // exclude extreme high outliers
+        upperPercentile: Float = 0.90f    // exclude extreme high outliers
     ): Float? {
         return try {
             // 1️⃣ Compute raw scores
