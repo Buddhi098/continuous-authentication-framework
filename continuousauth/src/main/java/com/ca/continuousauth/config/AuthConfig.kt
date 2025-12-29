@@ -83,7 +83,7 @@ data class AuthConfig private constructor(
         /* -------------------- Data Collection -------------------- */
         private var sampleCollectionFrequencyHz: Int = 100
         private var enrollmentSamples: Int = 2000
-        private var windowSize: Int = 64
+        private var windowSize: Int = 100
         private var windowOverlapRatio: Double = 0.5
         private var shouldLogFeatureVector: Boolean = false
 
