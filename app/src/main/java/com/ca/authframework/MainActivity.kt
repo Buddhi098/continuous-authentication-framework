@@ -1,23 +1,23 @@
 package com.ca.authframework
 
-import android.Manifest
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.content.pm.PackageManager
-import android.os.Build
 import android.os.Bundle
 import android.view.MotionEvent
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
-import androidx.core.content.ContextCompat
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.rememberNavController
 import com.ca.authframework.navigation.MainNavHost
 import com.ca.authframework.ui.AppTopBar
@@ -27,41 +27,46 @@ import com.ca.authframework.viewmodels.AuthenticationViewModel
 import com.ca.authframework.viewmodels.EnrollmentViewModel
 import com.ca.continuousauth.ContinuousAuth
 import com.ca.continuousauth.states.TouchEventData
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.launch
+import java.util.ArrayDeque
 
+/* ---------------------------------------------------------------------- */
+/*                      CONTINUOUS AUTH MANAGER                            */
+/* ---------------------------------------------------------------------- */
 object ContinuousAuthManager {
     lateinit var continuousAuth: ContinuousAuth
 }
 
+/* ---------------------------------------------------------------------- */
+/*                              MAIN ACTIVITY                              */
+/* ---------------------------------------------------------------------- */
 class MainActivity : ComponentActivity() {
 
     companion object {
-        private const val TAG = "CAFramework"
         private const val TARGET_SAMPLES = 2000
+        private const val AUTH_THRESHOLD = 0.75f
+        private const val SCORE_WINDOW = 10
     }
-    /* ---------------------------------------------------------------------- */
-    /*                        TOUCH EVENT STREAM                               */
-    /* ---------------------------------------------------------------------- */
+
+    /* 🔐 Feature flag */
+    private val isEnableLock = mutableStateOf(true)
+
     private val touchEventFlow = MutableSharedFlow<TouchEventData>(
         replay = 0,
         extraBufferCapacity = 256
     )
+
     private lateinit var enrollmentViewModel: EnrollmentViewModel
     private lateinit var authenticationViewModel: AuthenticationViewModel
 
+    /* 🔒 Lock state (ONLY used when isEnableLock = true) */
+    private val isLocked = mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        /* ------------------------------------------------------------------ */
-        /*                   INITIALIZE CONTINUOUS AUTH                        */
-        /* ------------------------------------------------------------------ */
         ContinuousAuthManager.continuousAuth = ContinuousAuth(
             context = applicationContext,
             touchEventFlow = touchEventFlow.asSharedFlow(),
@@ -70,68 +75,56 @@ class MainActivity : ComponentActivity() {
             enableLog = true
         )
 
-        enrollmentViewModel = EnrollmentViewModel(applicationContext, ContinuousAuthManager.continuousAuth)
-        authenticationViewModel = AuthenticationViewModel(ContinuousAuthManager.continuousAuth)
+        enrollmentViewModel =
+            EnrollmentViewModel(applicationContext, ContinuousAuthManager.continuousAuth)
 
-//        if (authenticationViewModel.isCheckpointExists.value) {
-//            authenticationViewModel.startAuthentication()
-//        }
-
-        if (enrollmentViewModel.isPaused.value) {
-            authenticationViewModel.stopAuthentication()
-            enrollmentViewModel.clearEnrollmentFiles()
-            enrollmentViewModel.resumeCollection()
-        }
+        authenticationViewModel =
+            AuthenticationViewModel(ContinuousAuthManager.continuousAuth)
 
         setContent {
             AuthframeworkTheme {
+
                 val navController = rememberNavController()
-                val lastAuthResult = authenticationViewModel.lastAuthResult
-                val isAuthRunning = authenticationViewModel.authenticationRunning
-                val evaluationRunning = authenticationViewModel.evaluationRunning
 
-                val currentAuthStatus =
-                    if ((evaluationRunning || isAuthRunning) && lastAuthResult != null) {
-                        if (lastAuthResult.isAuthenticated) "Authenticated" else "Rejected"
-                    } else "Unknown"
-
-                val currentScore =
-                    if ((evaluationRunning || isAuthRunning) && lastAuthResult != null) {
-                        "%.3f".format(lastAuthResult.score)
-                    } else "N/A"
-
-                val currentAuthPercentage =
-                    if ((evaluationRunning || isAuthRunning) && lastAuthResult?.authPercentage != null) {
-                        "%.2f%%".format(lastAuthResult.authPercentage)
-                    } else "N/A"
-
+                /* ---------------- MAIN APP UI (UNCHANGED) ---------------- */
                 Scaffold(
-                    topBar = { AppTopBar(status = currentAuthStatus, score = currentScore , currentAuthPercentage = currentAuthPercentage) },
+                    topBar = { AppTopBar(status = "Active", score = "—", currentAuthPercentage = "—") },
                     bottomBar = { BottomNavigationBar(navController) }
                 ) { innerPadding ->
-                    Surface(
-                        modifier = androidx.compose.ui.Modifier
+
+                    Box(
+                        modifier = Modifier
                             .fillMaxSize()
-                            .padding(innerPadding),
-                        color = MaterialTheme.colorScheme.background
+                            .padding(innerPadding)
                     ) {
+
+                        /* App content always visible */
                         MainNavHost(
                             navController = navController,
                             enrollmentViewModel = enrollmentViewModel,
                             authenticationViewModel = authenticationViewModel,
                             targetSamples = TARGET_SAMPLES
                         )
+
+                        /* 🔒 Lock screen overlay ONLY if enabled + locked */
+                        if (isEnableLock.value && isLocked.value) {
+                            AppLockScreen(
+                                authenticationViewModel = authenticationViewModel,
+                                threshold = AUTH_THRESHOLD,
+                                scoreWindow = SCORE_WINDOW,
+                                onUnlocked = { isLocked.value = false }
+                            )
+                        }
                     }
                 }
             }
         }
     }
 
-    /* ---------------------------------------------------------------------- */
-    /*                  GLOBAL TOUCH INTERCEPTION                              */
-    /* ---------------------------------------------------------------------- */
+    /* ------------------------------------------------------------------ */
+    /*                  GLOBAL TOUCH INTERCEPTION                          */
+    /* ------------------------------------------------------------------ */
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
-
         val touchData = TouchEventData(
             action = event.actionMasked,
             timestamp = event.eventTime,
@@ -149,16 +142,122 @@ class MainActivity : ComponentActivity() {
         return super.dispatchTouchEvent(event)
     }
 
+    override fun onResume() {
+        super.onResume()
+        authenticationViewModel.startAuthentication()
+    }
+
     override fun onPause() {
         super.onPause()
-        enrollmentViewModel.pauseCollection()
         authenticationViewModel.stopAuthentication()
+        enrollmentViewModel.pauseCollection()
     }
 
-    override fun onDestroy() {
-        super.onDestroy()
-        enrollmentViewModel.pauseCollection()
-        authenticationViewModel.stopAuthentication()
+    /* ------------------------------------------------------------------ */
+    /*      AUTO-LOCK DECISION (CONTINUOUS, INVISIBLE)                     */
+    /* ------------------------------------------------------------------ */
+    @Composable
+    private fun AutoLockController() {
+        if (!isEnableLock.value) return
+
+        val lastAuthResult = authenticationViewModel.lastAuthResult
+        val scoreBuffer = remember { ArrayDeque<Float>() }
+
+        LaunchedEffect(lastAuthResult) {
+            lastAuthResult?.let {
+                scoreBuffer.addLast(it.score)
+                if (scoreBuffer.size > SCORE_WINDOW) {
+                    scoreBuffer.removeFirst()
+                }
+
+                if (scoreBuffer.size == SCORE_WINDOW) {
+                    val meanScore = scoreBuffer.average().toFloat()
+
+                    /* 🔒 Auto-lock */
+                    if (meanScore >= AUTH_THRESHOLD) {
+                        isLocked.value = true
+                    }
+                }
+            }
+        }
+    }
+}
+
+/* ---------------------------------------------------------------------- */
+/*                           LOCK SCREEN UI                                */
+/* ---------------------------------------------------------------------- */
+@Composable
+fun AppLockScreen(
+    authenticationViewModel: AuthenticationViewModel,
+    threshold: Float,
+    scoreWindow: Int,
+    onUnlocked: () -> Unit
+) {
+    val lastAuthResult = authenticationViewModel.lastAuthResult
+    val scoreBuffer = remember { ArrayDeque<Float>() }
+
+    LaunchedEffect(lastAuthResult) {
+        lastAuthResult?.let {
+            scoreBuffer.addLast(it.score)
+            if (scoreBuffer.size > scoreWindow) {
+                scoreBuffer.removeFirst()
+            }
+
+            if (scoreBuffer.size == scoreWindow) {
+                val meanScore = scoreBuffer.average().toFloat()
+
+                /* 🔓 Unlock */
+                if (meanScore < threshold) {
+                    onUnlocked()
+                }
+            }
+        }
     }
 
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+
+            Spacer(modifier = Modifier.height(48.dp))
+
+            Row(horizontalArrangement = Arrangement.Center) {
+                repeat(3) {
+                    Box(
+                        modifier = Modifier
+                            .padding(horizontal = 12.dp)
+                            .size(56.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.25f))
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(40.dp))
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .verticalScroll(rememberScrollState())
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Text(
+                text = "Interact naturally",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.Gray
+            )
+        }
+    }
 }
