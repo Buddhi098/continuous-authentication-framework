@@ -108,16 +108,18 @@ You can:
 ### Running the Project
 
 1. Clone the repository  
-   git clone <repository-url>
+   ```bash
+   git clone https://github.com/Buddhi098/continuous-authentication-framework.git
 
 2. Open the project in Android Studio  
 
-3. Checkout the stable branch  
+3. Checkout the stable branch
+   ```bash
    git checkout buddhi-v11  
 
-4. Sync Gradle  
+5. Sync Gradle  
 
-5. Run the application on an emulator or physical device  
+6. Run the application on an emulator or physical device  
 
 ---
 
