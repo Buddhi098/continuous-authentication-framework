@@ -45,8 +45,8 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         private const val TARGET_SAMPLES = 2000
-        private const val AUTH_THRESHOLD = 0.75f
-        private const val SCORE_WINDOW = 10
+        private const val AUTH_THRESHOLD = 0.08f
+        private const val SCORE_WINDOW = 6
     }
 
     /* 🔐 Feature flag */
@@ -85,6 +85,10 @@ class MainActivity : ComponentActivity() {
             AuthframeworkTheme {
 
                 val navController = rememberNavController()
+                val lastAuthResult = authenticationViewModel.lastAuthResult
+                val isAuthRunning = authenticationViewModel.authenticationRunning
+                val evaluationRunning = authenticationViewModel.evaluationRunning
+
                 val currentAuthStatus =
                     if ((evaluationRunning || isAuthRunning) && lastAuthResult != null) {
                         if (lastAuthResult.isAuthenticated) "Authenticated" else "Rejected"
@@ -111,6 +115,7 @@ class MainActivity : ComponentActivity() {
                             .fillMaxSize()
                             .padding(innerPadding)
                     ) {
+                        AutoLockController()
 
                         /* App content always visible */
                         MainNavHost(
