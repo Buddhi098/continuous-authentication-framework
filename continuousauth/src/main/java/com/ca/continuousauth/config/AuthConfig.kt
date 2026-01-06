@@ -89,9 +89,9 @@ data class AuthConfig private constructor(
 
         /* -------------------- Model Training --------------------- */
         private var modelFileName: String = "model.tflite"
-        private var trainingEpochs: Int = 200
+        private var trainingEpochs: Int = 300
         private var trainingBatchSize: Int = 32
-        private var featureDimension: Int = 53
+        private var featureDimension: Int = 110
         private var trainValidationRatio: Double = 0.8
         private var enrollmentDataFilterRatio: Double = 0.1
 

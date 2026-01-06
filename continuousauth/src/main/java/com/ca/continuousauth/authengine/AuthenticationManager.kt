@@ -57,8 +57,8 @@ class AuthenticationManager(
 
         val startTime = System.nanoTime()   // start timer
 
-        val noiceScore = authModel.inferScore(featureVector)
-        val score = adaptiveScoreDenoiser.denoise(noiceScore!!)
+        val score = authModel.inferScore(featureVector)
+//        val score = adaptiveScoreDenoiser.denoise(noiceScore!!)
         val endTime = System.nanoTime()     // end timer
         val durationMs = (endTime - startTime) / 1_000_000.0  // convert to milliseconds
 

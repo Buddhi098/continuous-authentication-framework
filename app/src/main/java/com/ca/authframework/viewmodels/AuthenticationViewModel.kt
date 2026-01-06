@@ -13,7 +13,7 @@ class AuthenticationViewModel(
 ) : ViewModel() {
 
     // -----------------------------
-    // Auth state (directly exposed)
+    // Auth state
     // -----------------------------
     val isCheckpointExists: StateFlow<Boolean> = auth.isCheckpointExists
 
@@ -47,10 +47,14 @@ class AuthenticationViewModel(
     var authPercentage by mutableStateOf(0f)
         private set
 
-    var averageScore by mutableStateOf(0f)  // <-- NEW: average score during evaluation
+    var averageScore by mutableStateOf(0f)
         private set
 
-    private var totalScoreSum = 0f          // internal sum for calculation
+    var medianScore by mutableStateOf(0f)   // ✅ NEW
+        private set
+
+    private var totalScoreSum = 0f
+    private val scoreBuffer = mutableListOf<Float>() // ✅ for median
 
     // -----------------------------
     // Start Authentication
@@ -95,24 +99,31 @@ class AuthenticationViewModel(
         acceptedCount = 0
         authPercentage = 0f
         averageScore = 0f
+        medianScore = 0f
         totalScoreSum = 0f
+        scoreBuffer.clear()
         evaluationRunning = true
 
         auth.startAuthentication { result ->
             if (!evaluationRunning) return@startAuthentication
 
             processedSamples++
+
             if (result.isAuthenticated) {
                 acceptedCount++
             }
 
-            // Update auth percentage
-            authPercentage = (acceptedCount.toFloat() / processedSamples.toFloat()) * 100f
+            // Auth percentage
+            authPercentage =
+                (acceptedCount.toFloat() / processedSamples.toFloat()) * 100f
 
-            // Update average score
+            // Score tracking
             result.score?.let { score ->
                 totalScoreSum += score
                 averageScore = totalScoreSum / processedSamples
+
+                scoreBuffer.add(score)
+                medianScore = scoreBuffer.median()
             }
 
             lastAuthResult = result
@@ -126,5 +137,19 @@ class AuthenticationViewModel(
     fun stopEvaluation() {
         evaluationRunning = false
         auth.stopAuthentication()
+    }
+}
+
+/* -----------------------------
+ * Helper: Median
+ * ----------------------------- */
+private fun List<Float>.median(): Float {
+    if (isEmpty()) return 0f
+    val sorted = sorted()
+    val mid = size / 2
+    return if (size % 2 == 0) {
+        (sorted[mid - 1] + sorted[mid]) / 2f
+    } else {
+        sorted[mid]
     }
 }

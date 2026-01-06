@@ -24,7 +24,10 @@ fun EvaluationScreen(viewModel: AuthenticationViewModel) {
         verticalArrangement = Arrangement.spacedBy(12.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
+
+        // -----------------------------
         // Title
+        // -----------------------------
         Text(
             text = "Authentication Evaluation",
             fontSize = 22.sp,
@@ -32,7 +35,9 @@ fun EvaluationScreen(viewModel: AuthenticationViewModel) {
             color = MaterialTheme.colorScheme.primary
         )
 
-        // Number of samples input
+        // -----------------------------
+        // Sample count input
+        // -----------------------------
         OutlinedTextField(
             value = sampleInput,
             onValueChange = { sampleInput = it },
@@ -42,7 +47,9 @@ fun EvaluationScreen(viewModel: AuthenticationViewModel) {
             modifier = Modifier.fillMaxWidth()
         )
 
+        // -----------------------------
         // Start / Stop buttons
+        // -----------------------------
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -74,13 +81,16 @@ fun EvaluationScreen(viewModel: AuthenticationViewModel) {
 
         Divider(color = Color.Gray, thickness = 1.dp)
 
+        // -----------------------------
         // Progress
+        // -----------------------------
         Column(modifier = Modifier.fillMaxWidth()) {
             Text(
                 text = "Progress: ${viewModel.processedSamples} / ${viewModel.targetSamples}",
                 fontWeight = FontWeight.Medium,
                 fontSize = 12.sp
             )
+
             LinearProgressIndicator(
                 progress = if (viewModel.targetSamples > 0)
                     viewModel.processedSamples.toFloat() / viewModel.targetSamples
@@ -93,7 +103,9 @@ fun EvaluationScreen(viewModel: AuthenticationViewModel) {
             )
         }
 
-        // Authentication Percentage Card
+        // -----------------------------
+        // Evaluation Results Card
+        // -----------------------------
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(10.dp),
@@ -103,8 +115,10 @@ fun EvaluationScreen(viewModel: AuthenticationViewModel) {
         ) {
             Column(
                 modifier = Modifier.padding(12.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
+
                 Text(
                     text = "Authentication Confidence",
                     fontSize = 14.sp,
@@ -118,7 +132,9 @@ fun EvaluationScreen(viewModel: AuthenticationViewModel) {
                     color = MaterialTheme.colorScheme.primary
                 )
 
+                // -----------------------------
                 // Last Score
+                // -----------------------------
                 viewModel.lastAuthResult?.score?.let { lastScore ->
                     Text(
                         text = "Last Score: ${"%.4f".format(lastScore)}",
@@ -128,18 +144,36 @@ fun EvaluationScreen(viewModel: AuthenticationViewModel) {
                     )
                 }
 
+                // -----------------------------
                 // Average Score
+                // -----------------------------
                 Text(
                     text = "Average Score: ${"%.4f".format(viewModel.averageScore)}",
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium,
                     color = Color.Gray
                 )
+
+                // -----------------------------
+                // Median Score (NEW)
+                // -----------------------------
+                Text(
+                    text = "Median Score: ${"%.4f".format(viewModel.medianScore)}",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color(0xFF009688) // Teal = robust metric
+                )
             }
         }
 
+        // -----------------------------
         // Evaluation Complete
-        if (!viewModel.evaluationRunning && viewModel.processedSamples == viewModel.targetSamples && viewModel.targetSamples > 0) {
+        // -----------------------------
+        if (
+            !viewModel.evaluationRunning &&
+            viewModel.processedSamples == viewModel.targetSamples &&
+            viewModel.targetSamples > 0
+        ) {
             Text(
                 text = "Evaluation Complete",
                 fontWeight = FontWeight.Bold,

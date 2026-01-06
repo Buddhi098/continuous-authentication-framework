@@ -56,4 +56,6 @@ dependencies {
     // Wavelet transform library for Java (includes DWT/IDWT)
     implementation("de.sciss:jwave:1.0.3")
 
+    implementation("org.apache.commons:commons-math3:3.6.1")
+
 }

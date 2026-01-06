@@ -147,48 +147,31 @@ class EnrollmentManager(
     // --------------------------------------------------
     private fun calculateThreshold(
         validationSet: List<List<Float>>,
-        factor: Float = 6.0f,             // MAD multiplier
-        lowerPercentile: Float = 0.05f,   // exclude extreme low outliers
-        upperPercentile: Float = 0.90f    // exclude extreme high outliers
+        quantile: Float = 0.80f // Default to 80th percentile (0.8)
     ): Float? {
         return try {
             // 1️⃣ Compute raw scores
             val rawScores = validationSet.mapNotNull { authModel.inferScore(it) }
             if (rawScores.isEmpty()) return null
 
-            // 2️⃣ Apply denoising
-            val smoothScores = rawScores.map { denoiser.denoise(it) }
-            val sortedScores = smoothScores.sorted()
+            // 2️⃣ Sort scores ascending
+            val sortedScores = rawScores.sorted()
             val n = sortedScores.size
 
-            // 3️⃣ Clip extreme percentiles
-            val lowIndex = ((n - 1) * lowerPercentile).toInt().coerceIn(0, n - 1)
-            val highIndex = ((n - 1) * upperPercentile).toInt().coerceIn(0, n - 1)
-            val filteredScores = sortedScores.subList(lowIndex, highIndex + 1)
-            if (filteredScores.isEmpty()) return null
+            // 3️⃣ Find the index for the requested quantile
+            // Formula: index = (N - 1) * percentile
+            val index = ((n - 1) * quantile).toInt().coerceIn(0, n - 1)
 
-            // 4️⃣ Compute median
-            val median = filteredScores.let { fs ->
-                val mid = fs.size / 2
-                if (fs.size % 2 == 0) (fs[mid - 1] + fs[mid]) / 2f else fs[mid]
-            }
+            // 4️⃣ Return the score at that index as the threshold
+            val threshold = sortedScores[index]
 
-            // 5️⃣ Compute MAD
-            val mad = filteredScores.map { abs(it - median) }.sorted().let { absSorted ->
-                val mid = absSorted.size / 2
-                if (absSorted.size % 2 == 0) (absSorted[mid - 1] + absSorted[mid]) / 2f else absSorted[mid]
-            }.coerceAtLeast(1e-12f) // avoid zero
+            // Optional: Log the result for debugging
+            // Logger.d("Calculated ${quantile * 100}% threshold: $threshold from $n scores")
 
-            // 6️⃣ Compute interquartile range (IQR) for added robustness
-            val q1 = filteredScores[(filteredScores.size * 0.25).toInt()]
-            val q3 = filteredScores[(filteredScores.size * 0.75).toInt()]
-            val iqr = (q3 - q1).coerceAtLeast(1e-12f)
+            threshold
 
-            // 7️⃣ Final threshold (median + factor*MAD, capped by IQR for stability)
-            val threshold = median + factor * mad
-            threshold.coerceAtMost(q3 + 3 * iqr)  // prevent runaway high thresholds
         } catch (e: Exception) {
-            Logger.e("Robust threshold calculation error: ${e.message}", e)
+            Logger.e("Quantile threshold calculation error: ${e.message}", e)
             null
         }
     }

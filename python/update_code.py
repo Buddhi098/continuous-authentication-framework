@@ -20,8 +20,8 @@ TFLITE_FILE_PATH = ASSETS_DIR / "model.tflite"
 # -------------------------------------------------------------------------
 # Model Hyperparameters
 # -------------------------------------------------------------------------
-INPUT_DIM = 53
-LATENT_DIM = 32
+INPUT_DIM = 110
+LATENT_DIM = 16
 BATCH_SIZE = 32
 
 # -------------------------------------------------------------------------
@@ -37,15 +37,15 @@ class SensorAutoencoder(tf.keras.Model):
         self.encoder = tf.keras.Sequential([
             tf.keras.layers.InputLayer(input_shape=(input_dim,)),
 
-            tf.keras.layers.Dense(256),
-            tf.keras.layers.LayerNormalization(),
-            tf.keras.layers.LeakyReLU(),
-
             tf.keras.layers.Dense(128),
             tf.keras.layers.LayerNormalization(),
             tf.keras.layers.LeakyReLU(),
 
             tf.keras.layers.Dense(64),
+            tf.keras.layers.LayerNormalization(),
+            tf.keras.layers.LeakyReLU(),
+
+            tf.keras.layers.Dense(32),
             tf.keras.layers.LayerNormalization(),
             tf.keras.layers.LeakyReLU(),
 
@@ -56,15 +56,15 @@ class SensorAutoencoder(tf.keras.Model):
         self.decoder = tf.keras.Sequential([
             tf.keras.layers.InputLayer(input_shape=(latent_dim,)),
 
+            tf.keras.layers.Dense(32),
+            tf.keras.layers.LayerNormalization(),
+            tf.keras.layers.LeakyReLU(),
+
             tf.keras.layers.Dense(64),
             tf.keras.layers.LayerNormalization(),
             tf.keras.layers.LeakyReLU(),
 
             tf.keras.layers.Dense(128),
-            tf.keras.layers.LayerNormalization(),
-            tf.keras.layers.LeakyReLU(),
-
-            tf.keras.layers.Dense(256),
             tf.keras.layers.LayerNormalization(),
             tf.keras.layers.LeakyReLU(),
 

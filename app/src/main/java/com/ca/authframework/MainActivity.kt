@@ -44,13 +44,13 @@ object ContinuousAuthManager {
 class MainActivity : ComponentActivity() {
 
     companion object {
-        private const val TARGET_SAMPLES = 2000
-        private const val AUTH_THRESHOLD = 0.08f
+        private const val TARGET_SAMPLES = 1000
+        private const val AUTH_THRESHOLD = 0.4f
         private const val SCORE_WINDOW = 6
     }
 
     /* 🔐 Feature flag */
-    private val isEnableLock = mutableStateOf(true)
+    private val isEnableLock = mutableStateOf(false)
 
     private val touchEventFlow = MutableSharedFlow<TouchEventData>(
         replay = 0,
@@ -205,6 +205,18 @@ class MainActivity : ComponentActivity() {
 /* ---------------------------------------------------------------------- */
 /*                           LOCK SCREEN UI                                */
 /* ---------------------------------------------------------------------- */
+
+private fun median(values: List<Float>): Float {
+    if (values.isEmpty()) return 0f
+    val sorted = values.sorted()
+    val mid = sorted.size / 2
+    return if (sorted.size % 2 == 0) {
+        (sorted[mid - 1] + sorted[mid]) / 2f
+    } else {
+        sorted[mid]
+    }
+}
+
 @Composable
 fun AppLockScreen(
     authenticationViewModel: AuthenticationViewModel,
@@ -216,17 +228,32 @@ fun AppLockScreen(
     val scoreBuffer = remember { ArrayDeque<Float>() }
 
     LaunchedEffect(lastAuthResult) {
-        lastAuthResult?.let {
-            scoreBuffer.addLast(it.score)
+        lastAuthResult?.let {result ->
+            var newScore = result.score ?: return@let
+
+            // -----------------------------
+            // Spike removal (last 6 values)
+            // -----------------------------
+            if (scoreBuffer.size >= 6) {
+                val lastSix = scoreBuffer.toList().takeLast(6)
+                val currentAvg = scoreBuffer.average().toFloat()
+
+                if (newScore > 3f * currentAvg) {
+                    newScore = currentAvg
+                }
+            }
+
+            scoreBuffer.addLast(newScore)
+
             if (scoreBuffer.size > scoreWindow) {
                 scoreBuffer.removeFirst()
             }
 
             if (scoreBuffer.size == scoreWindow) {
-                val meanScore = scoreBuffer.average().toFloat()
+                val medianScore = median(scoreBuffer.toList())
 
                 /* 🔓 Unlock */
-                if (meanScore < threshold) {
+                if (medianScore < threshold) {
                     onUnlocked()
                 }
             }

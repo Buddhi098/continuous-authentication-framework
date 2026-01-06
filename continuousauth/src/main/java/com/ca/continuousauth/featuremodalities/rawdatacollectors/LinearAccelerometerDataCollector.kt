@@ -5,26 +5,25 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
+import android.os.Handler
+import android.os.HandlerThread
 import com.ca.continuousauth.config.AuthConfigManager
 import com.ca.continuousauth.utils.Logger
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.awaitClose
-import kotlinx.coroutines.channels.onFailure
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
 
 /**
- * Accelerometer data collector implementing RawDataCollector interface.
- * Emits each reading as a List<Float> along with its timestamp (in milliseconds),
- * at a specified frequency.
- *
- * If accelerometer sensor is NOT available, emits (0f, 0f, 0f)
- * instead of crashing the data collection system.
+ * Linear Accelerometer data collector implementing RawDataCollector interface.
+ * Emits each reading as a List<Float> along with its timestamp (in milliseconds).
  */
 class LinearAccelerometerDataCollector(
     context: Context,
@@ -42,75 +41,103 @@ class LinearAccelerometerDataCollector(
 
     override fun start(): Flow<Pair<Long, List<Float>>> = callbackFlow {
 
-        // Convert Hz → microseconds (SensorManager requirement)
+        // Convert Hz → microseconds (Hint for the OS)
         val samplingPeriodUs = (1_000_000 / frequencyHz)
 
         // ------------------------------------------------
-        // CASE 1: Accelerometer NOT available
+        // CASE 1: Linear Accelerometer NOT available -> Fallback
         // ------------------------------------------------
         if (accelerometer == null) {
-            Logger.e("Accelerometer not available. Emitting zero values.")
+            Logger.e("Linear Accelerometer not available. Emitting zero values.")
+            val intervalMs = 1000L / frequencyHz
 
             val zeroJob = launch {
                 while (true) {
                     val now = System.currentTimeMillis()
+                    // Emit zeros to keep the pipeline alive
                     trySend(now to listOf(0f, 0f, 0f))
-                    delay(1000L / frequencyHz)
+                    delay(intervalMs)
                 }
             }
-
             awaitClose { zeroJob.cancel() }
             return@callbackFlow
         }
 
         // ------------------------------------------------
-        // CASE 2: Accelerometer available
+        // CASE 2: Linear Accelerometer available -> Real Data
         // ------------------------------------------------
-        val listener = object : SensorEventListener {
 
+        // OPTIMIZATION: Linear Acceleration is often a "virtual" sensor computed
+        // by the system using software fusion (Gyro + Accel). This computation
+        // is CPU-intensive. Moving it to a handler thread is critical to avoid UI lag.
+        val sensorThread = HandlerThread("LinearAccelWorker")
+        sensorThread.start()
+        val sensorHandler = Handler(sensorThread.looper)
+
+        val listener = object : SensorEventListener {
             override fun onSensorChanged(event: SensorEvent) {
+                // Capture timestamp immediately
                 val timestamp = System.currentTimeMillis()
 
-                val rawData = listOf(
-                    event.values[0],
-                    event.values[1],
-                    event.values[2]
-                )
+                // Copy values immediately
+                val x = event.values[0]
+                val y = event.values[1]
+                val z = event.values[2]
 
-                trySend(timestamp to rawData)
-                    .onFailure { err ->
-                        Logger.e("Failed to emit accelerometer data", err)
-                    }
+                // Create payload (boxing 3 floats into a list)
+                val rawData = listOf(x, y, z)
+
+                // Try to send to the flow
+                val result = trySend(timestamp to rawData)
+
+                // Debugging: If this fails, consumer is too slow
+                if (result.isFailure) {
+                    // Logger.w("Linear Accel buffer overflow: Packet dropped")
+                }
             }
 
             override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
-                Logger.d("Accelerometer accuracy changed: $accuracy")
+                // No-op
             }
         }
 
-        Logger.d("Registering accelerometer listener at ${frequencyHz}Hz")
+        Logger.d("Registering linear accelerometer listener at ${frequencyHz}Hz")
 
         try {
             sensorManager.registerListener(
                 listener,
                 accelerometer,
-                samplingPeriodUs
+                samplingPeriodUs,
+                sensorHandler // Execute on background thread
             )
         } catch (ex: Exception) {
-            Logger.e("Failed to register accelerometer listener", ex)
+            Logger.e("Failed to register linear accelerometer listener", ex)
+            close(ex)
         }
 
+        // Cleanup when the flow collection stops
         awaitClose {
             try {
-                Logger.d("Unregistering accelerometer listener")
+                Logger.d("Unregistering linear accelerometer listener")
                 sensorManager.unregisterListener(listener)
+                sensorThread.quitSafely() // Important: Stop the background thread
             } catch (ex: Exception) {
-                Logger.e("Error unregistering accelerometer listener", ex)
+                Logger.e("Error unregistering linear accelerometer listener", ex)
             }
         }
     }
+        // ------------------------------------------------
+        // CRITICAL FIX: Buffer Strategy
+        // ------------------------------------------------
+        // Replaced Channel.UNLIMITED with a fixed capacity + DROP_OLDEST.
+        // This ensures the system always processes fresh data and prevents latency accumulation.
+        .buffer(
+            capacity = 50,
+            onBufferOverflow = BufferOverflow.DROP_OLDEST
+        )
+        // Handle unexpected errors in the flow pipeline
         .catch { ex ->
-            Logger.e("Accelerometer flow error", ex)
+            Logger.e("Linear Accelerometer flow error", ex)
         }
         .flowOn(dispatcher)
 }
