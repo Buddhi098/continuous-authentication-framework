@@ -44,9 +44,9 @@ object ContinuousAuthManager {
 class MainActivity : ComponentActivity() {
 
     companion object {
-        private const val TARGET_SAMPLES = 1000
-        private const val AUTH_THRESHOLD = 0.4f
-        private const val SCORE_WINDOW = 6
+        private const val TARGET_SAMPLES = 1200
+        private const val AUTH_THRESHOLD = 0.2f
+        private const val SCORE_WINDOW = 10
     }
 
     /* 🔐 Feature flag */
@@ -147,6 +147,7 @@ class MainActivity : ComponentActivity() {
         val touchData = TouchEventData(
             action = event.actionMasked,
             timestamp = event.eventTime,
+            downTime = event.downTime,
             x = event.x,
             y = event.y,
             pressure = event.pressure,

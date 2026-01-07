@@ -3,6 +3,7 @@ package com.ca.continuousauth.states
 data class TouchEventData(
     val action: Int,
     val timestamp: Long,
+    val downTime: Long,  // event.downTime (ADD THIS FIELD)
     val x: Float,
     val y: Float,
     val pressure: Float,

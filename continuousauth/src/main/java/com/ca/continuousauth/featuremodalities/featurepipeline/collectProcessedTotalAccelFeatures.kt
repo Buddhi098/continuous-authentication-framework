@@ -1,5 +1,6 @@
 package com.ca.continuousauth.featuremodalities.featurepipeline
 
+import AdvancedAccelerometerDenoiser
 import com.ca.continuousauth.config.AuthConfigManager
 import com.ca.continuousauth.featuremodalities.dataprocessing.denoisers.SensorDenoiser
 import com.ca.continuousauth.featuremodalities.dataprocessing.denoisers.TremorBandPassDenoiser
@@ -29,7 +30,13 @@ fun collectProcessedTotalAccelFeatures(
     val windowSize: Int = AuthConfigManager.config.windowSize
     val windowOverlap: Double = AuthConfigManager.config.windowOverlapRatio
 
-    val denoisers: List<SensorDenoiser> = listOf(LowpassDenoiser())
+    val denoisers: List<SensorDenoiser> = listOf(AdvancedAccelerometerDenoiser(
+        baseHighPassAlpha = 0.08f,  // Slower gravity adaptation to preserve low-freq gait
+        lowPassAlpha = 0.25f,       // Slightly higher smoothing (dual-pass is aggressive)
+        madMultiplier = 3.5f,       // Conservative spike removal to keep heel-strike peaks
+        gainFactor = 5.0f,          // Moderate gain to prevent tanh saturation on gait
+        historySize = 50            // ~2.5s history (assuming 50Hz/window) for stable thresholds
+    ))
 
     val featureExtractors: List<FeatureExtractor> = listOf(
         SensorFeatureExtractor()

@@ -2,7 +2,6 @@ package com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors
 
 import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.FeatureExtractor
 import com.ca.continuousauth.utils.Logger
-import kotlin.math.sqrt
 
 class MeanFeatureExtractor : FeatureExtractor {
     override fun extract(window: List<Pair<Long, List<Float>>>): List<Float> {
@@ -23,14 +22,8 @@ class MeanFeatureExtractor : FeatureExtractor {
                 features.add(mean)
             }
 
-            // -------------------------------
-            // Min-Max Scaling to [0,1]
-            // -------------------------------
-            val minVal = features.minOrNull() ?: 0f
-            val maxVal = features.maxOrNull() ?: 1f
-            val range = if (maxVal - minVal == 0f) 1f else maxVal - minVal
-
-            features.map { (it - minVal) / range }
+            // Return the raw mean values directly
+            features
 
         } catch (ex: Exception) {
             Logger.e("MeanFeatureExtractor error", ex)

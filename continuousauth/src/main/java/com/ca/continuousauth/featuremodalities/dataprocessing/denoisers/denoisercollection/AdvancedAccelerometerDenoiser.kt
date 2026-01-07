@@ -6,11 +6,11 @@ import kotlin.math.sqrt
 import kotlin.math.tanh
 
 class AdvancedAccelerometerDenoiser(
-    private val baseHighPassAlpha: Float = 0.6f,
-    private val lowPassAlpha: Float = 0.4f,
-    private val madMultiplier: Float = 10.0f,
-    private val gainFactor: Float = 3f,
-    private val historySize: Int = 15
+    private val baseHighPassAlpha: Float = 0.1f,
+    private val lowPassAlpha: Float = 0.2f,
+    private val madMultiplier: Float = 3.0f,
+    private val gainFactor: Float = 8f,
+    private val historySize: Int = 20
 ) : SensorDenoiser {
 
     private val intensityHistory = ArrayDeque<Float>()

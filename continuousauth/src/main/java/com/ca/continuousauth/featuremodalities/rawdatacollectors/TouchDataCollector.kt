@@ -6,106 +6,146 @@ import com.ca.continuousauth.utils.Logger
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.*
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.abs
+import kotlin.math.sqrt
 
-/**
- * Touch Data Collector using gesture-level features (DOWN → UP)
- *
- * Emits a fixed-size 5D feature vector:
- * [ dx, dy, gestureSpeed, gestureDuration, avgPressure ]
- */
 class TouchDataCollector(
     private val touchEventFlow: Flow<TouchEventData>?,
     private val frequencyHz: Int = AuthConfigManager.config.sampleCollectionFrequencyHz,
-    private val dispatcher: CoroutineDispatcher = Dispatchers.Default,
+    private val dispatcher: CoroutineDispatcher = Dispatchers.Default
 ) : RawDataCollector<List<Float>> {
 
     override val modalityName: String = "TOUCH"
-    private val repeatitionLimit: Int = AuthConfigManager.config.windowSize * 10
 
     override fun start(): Flow<Pair<Long, List<Float>>> = callbackFlow {
-        val minIntervalMs = (1000 / frequencyHz.toLong())
-        var lastVector = zeroVector()
-        var isActionStart = false
-        var repeatCount = 0
+        val minIntervalMs = 1000L / frequencyHz
+        val lastVector = AtomicReference(zeroVector())
 
-        // Gesture state
+        // Gesture tracking
         var startX = 0f
         var startY = 0f
         var lastX = 0f
         var lastY = 0f
-        var startTime = 0L
+        var lastTimestamp = 0L
+
         var totalDistance = 0f
-        var pressureSum = 0f
-        var pressureCount = 0
+        var pressureList = mutableListOf<Float>()
+        var sizeList = mutableListOf<Float>()
+        var orientationList = mutableListOf<Float>()
+        var speedList = mutableListOf<Float>()
+        var pointerList = mutableListOf<Int>()
+        var majorMinorRatioList = mutableListOf<Float>()
 
-        // Emit initial zero vector
-        trySend(System.currentTimeMillis() to lastVector).isSuccess
+        trySend(System.currentTimeMillis() to lastVector.get()).isSuccess
 
-        val job = touchEventFlow?.onEach { event ->
-            when (event.action) {
-                0 -> { // ACTION_DOWN
-                    startX = event.x
-                    startY = event.y
-                    lastX = event.x
-                    lastY = event.y
-                    startTime = event.timestamp
-                    totalDistance = 0f
-                    pressureSum = event.pressure
-                    pressureCount = 1
+        val job = touchEventFlow
+            ?.onEach { event ->
+                when (event.action) {
+                    0 -> { // ACTION_DOWN
+                        startX = event.x
+                        startY = event.y
+                        lastX = event.x
+                        lastY = event.y
+                        lastTimestamp = event.timestamp
 
-                    isActionStart = true
-                }
+                        totalDistance = 0f
+                        pressureList.clear()
+                        sizeList.clear()
+                        orientationList.clear()
+                        speedList.clear()
+                        pointerList.clear()
+                        majorMinorRatioList.clear()
 
-                2 -> { // ACTION_MOVE
-                    val dx = event.x - lastX
-                    val dy = event.y - lastY
-                    totalDistance += kotlin.math.sqrt(dx * dx + dy * dy)
-                    lastX = event.x
-                    lastY = event.y
-                    pressureSum += event.pressure
-                    pressureCount++
-                }
+                        pressureList.add(event.pressure)
+                        sizeList.add(event.size)
+                        orientationList.add(event.orientation)
+                        pointerList.add(event.pointerCount)
+                        majorMinorRatioList.add(
+                            if (event.touchMinor != 0f) event.touchMajor / event.touchMinor else 0f
+                        )
+                    }
 
-                1 -> { // ACTION_UP
-                    val durationMs = (event.timestamp - startTime).coerceAtLeast(1L)
-                    val dx = event.x - startX
-                    val dy = event.y - startY
-                    val speed = totalDistance / durationMs
-                    val avgPressure =
-                        if (pressureCount > 0) pressureSum / pressureCount else 0f
-                    val dxAbs = abs(dx)
-                    val dyAbs = abs(dy)
-                    val speedAbs = abs(speed)
-                    val durationAbs = abs(durationMs.toFloat() / 1000f)  // duration in seconds
+                    2 -> { // ACTION_MOVE
+                        val dx = event.x - lastX
+                        val dy = event.y - lastY
+                        val dt = (event.timestamp - lastTimestamp).coerceAtLeast(1L)
 
-                    lastVector = listOf(
-                        dxAbs,
-                        dyAbs,
-                        speedAbs,
-                        durationAbs,
-                    )
+                        val distance = sqrt(dx * dx + dy * dy)
+                        val speed = distance / dt.toFloat()
 
-//                    Logger.d("Emitted raw touchdynamic data : $lastVector")
+                        totalDistance += distance
+                        speedList.add(speed)
+                        lastX = event.x
+                        lastY = event.y
+                        lastTimestamp = event.timestamp
+
+                        pressureList.add(event.pressure)
+                        sizeList.add(event.size)
+                        orientationList.add(event.orientation)
+                        pointerList.add(event.pointerCount)
+                        majorMinorRatioList.add(
+                            if (event.touchMinor != 0f) event.touchMajor / event.touchMinor else 0f
+                        )
+                    }
+
+                    1 -> { // ACTION_UP
+                        val durationMs = (event.timestamp - event.downTime).coerceAtLeast(1L)
+                        val dx = event.x - startX
+                        val dy = event.y - startY
+                        val speed = totalDistance / durationMs.toFloat()
+
+                        // Aggregate features
+                        val avgPressure = pressureList.average().toFloat()
+                        val maxPressure = pressureList.maxOrNull() ?: 0f
+                        val minPressure = pressureList.minOrNull() ?: 0f
+                        val pressureVar = variance(pressureList)
+
+                        val avgSize = sizeList.average().toFloat()
+                        val maxSize = sizeList.maxOrNull() ?: 0f
+                        val minSize = sizeList.minOrNull() ?: 0f
+
+                        val avgOrientation = orientationList.average().toFloat()
+
+                        val avgSpeed = speedList.average().toFloat()
+                        val maxSpeed = speedList.maxOrNull() ?: 0f
+                        val acceleration = if (speedList.size > 1) {
+                            (speedList.last() - speedList.first()) / durationMs.toFloat()
+                        } else 0f
+
+                        val avgPointers = pointerList.average().toFloat()
+                        val maxPointers = pointerList.maxOrNull() ?: 0
+
+                        val avgMajorMinorRatio = majorMinorRatioList.average().toFloat()
+
+                        lastVector.set(
+                            listOf(
+                                abs(dx),                // total x displacement
+                                abs(dy),                // total y displacement
+                                speed,                  // average speed
+                                durationMs / 1000f,     // duration in seconds
+                                avgPressure,
+                                maxPressure,
+                                minPressure,
+                                pressureVar,
+                                avgSize,
+                                maxSize,
+                                minSize,
+                                avgOrientation,
+                                maxSpeed,
+                                acceleration,
+                            ) as List<Float>?
+                        )
+                    }
                 }
             }
-        }?.launchIn(this)
+            ?.launchIn(this)
 
         while (isActive) {
-            if(isActionStart){
-                trySend(System.currentTimeMillis() to lastVector).isSuccess
-                isActionStart = false
-                repeatCount = 0
-            }else{
-                if(repeatCount <= repeatitionLimit){
-                    trySend(System.currentTimeMillis() to lastVector).isSuccess
-                    repeatCount++
-                }else{
-                    trySend(System.currentTimeMillis() to zeroVector()).isSuccess
-                }
-            }
+            trySend(System.currentTimeMillis() to lastVector.get()).isSuccess
             delay(minIntervalMs)
         }
+
         awaitClose { job?.cancel() }
     }
         .catch { ex ->
@@ -114,5 +154,11 @@ class TouchDataCollector(
         }
         .flowOn(dispatcher)
 
-    private fun zeroVector(): List<Float> = List(4) { 0f }
+    private fun zeroVector(): List<Float> = List(14) { 0f }
+
+    private fun variance(list: List<Float>): Float {
+        if (list.isEmpty()) return 0f
+        val mean = list.average()
+        return list.map { (it - mean).toFloat() * (it - mean).toFloat() }.average().toFloat()
+    }
 }

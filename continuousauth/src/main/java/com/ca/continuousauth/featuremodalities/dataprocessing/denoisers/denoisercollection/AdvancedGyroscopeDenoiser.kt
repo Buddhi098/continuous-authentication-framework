@@ -6,10 +6,10 @@ import kotlin.math.*
 
 class AdvancedGyroscopeDenoiser(
     private val baseHighPassAlpha: Float = 0.05f,
-    private val lowPassAlpha: Float = 0.1f,
-    private val madMultiplier: Float = 6.0f,
-    private val baseGain: Float = 18f,
-    private val windowSize: Int = 3
+    private val lowPassAlpha: Float = 0.25f,
+    private val madMultiplier: Float = 3.0f,
+    private val baseGain: Float = 12f,
+    private val windowSize: Int = 5
 ) : SensorDenoiser {
 
     override fun denoiseWindow(window: List<Pair<Long, List<Float>>>): List<Pair<Long, List<Float>>> {

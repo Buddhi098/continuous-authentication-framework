@@ -81,9 +81,9 @@ data class AuthConfig private constructor(
     class Builder {
 
         /* -------------------- Data Collection -------------------- */
-        private var sampleCollectionFrequencyHz: Int = 128
+        private var sampleCollectionFrequencyHz: Int = 100
         private var enrollmentSamples: Int = 2000
-        private var windowSize: Int = 128
+        private var windowSize: Int = 100
         private var windowOverlapRatio: Double = 0.5
         private var shouldLogFeatureVector: Boolean = false
 
@@ -91,7 +91,7 @@ data class AuthConfig private constructor(
         private var modelFileName: String = "model.tflite"
         private var trainingEpochs: Int = 300
         private var trainingBatchSize: Int = 32
-        private var featureDimension: Int = 110
+        private var featureDimension: Int = 34
         private var trainValidationRatio: Double = 0.8
         private var enrollmentDataFilterRatio: Double = 0.1
 

@@ -5,7 +5,9 @@ import com.ca.continuousauth.featuremodalities.dataprocessing.denoisers.SensorDe
 import com.ca.continuousauth.featuremodalities.dataprocessing.denoisers.denoisePipeline
 import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.FeatureExtractor
 import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.featurePipeline
+import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.featureextractorcollection.AdvancedTouchFeatureExtractor
 import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.featureextractorcollection.MeanFeatureExtractor
+import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.featureextractorcollection.StatisticalFeatureExtractor
 import com.ca.continuousauth.featuremodalities.dataprocessing.windowing.windowedFlow
 import com.ca.continuousauth.utils.Logger
 import kotlinx.coroutines.CoroutineDispatcher
