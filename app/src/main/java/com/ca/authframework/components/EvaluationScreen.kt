@@ -170,26 +170,39 @@ fun EvaluationScreen(viewModel: AuthenticationViewModel) {
         // TDT Accuracy
         // -----------------------------
         Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp)
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(200.dp), // give the card some height
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.primaryContainer
+            )
         ) {
             Column(
-                modifier = Modifier.padding(14.dp),
+                modifier = Modifier
+                    .fillMaxSize() // fill the card's width and height
+                    .padding(20.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(4.dp)
+                verticalArrangement = Arrangement.Center // center content vertically
             ) {
 
                 Text(
-                    text = "Window-based TDT Accuracy",
-                    fontSize = 14.sp,
+                    text = "Window-based Accuracy",
+                    fontSize = 16.sp,
                     fontWeight = FontWeight.SemiBold
                 )
 
                 Text(
                     text = "${"%.2f".format(viewModel.tdtAccuracy * 100)} %",
-                    fontSize = 26.sp,
+                    fontSize = 28.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color(0xFF4CAF50)
+                )
+
+                Text(
+                    text = "Samples Per Window: ${viewModel.tdtWindowSize}",
+                    fontSize = 12.sp,
+                    color = Color.Gray
                 )
 
                 Text(

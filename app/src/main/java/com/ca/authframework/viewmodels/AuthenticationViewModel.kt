@@ -60,7 +60,7 @@ class AuthenticationViewModel(
     /* ================================================= */
     /* ✅ TDT NON-OVERLAPPING WINDOW (GLOBAL STATE)       */
     /* ================================================= */
-    private val tdtWindowSize = 10
+    val tdtWindowSize = 10
     private val authWindow = ArrayDeque<Boolean>(tdtWindowSize)
 
     var totalWindows by mutableStateOf(0)
