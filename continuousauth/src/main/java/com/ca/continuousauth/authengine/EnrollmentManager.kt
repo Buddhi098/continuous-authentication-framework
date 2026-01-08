@@ -148,44 +148,23 @@ class EnrollmentManager(
     // --------------------------------------------------
     private fun calculateThreshold(
         validationSet: List<List<Float>>,
-        sensitivity: Float = 1.5f // k-factor for margin
+        percentile: Float = 85f
     ): Float? {
         return try {
-            // 1️⃣ Extract Scores
-            val rawScores = validationSet.mapNotNull { authModel.inferScore(it) }
-            if (rawScores.size < 10) return null // Need a minimum sample size for stability
+            val scores = validationSet.mapNotNull { authModel.inferScore(it) }
+            if (scores.size < 20) return null
 
-            // 2️⃣ Filter Outliers (using Interquartile Range)
-            // This prevents one "weird" accidental swipe from ruining your threshold
-            val sorted = rawScores.sorted()
-            val q1 = sorted[(sorted.size * 0.25).toInt()]
-            val q3 = sorted[(sorted.size * 0.75).toInt()]
-            val iqr = q3 - q1
+            val sorted = scores.sorted()
 
-            val filteredScores = sorted.filter { it in (q1 - 1.5 * iqr)..(q3 + 1.5 * iqr) }
-            if (filteredScores.isEmpty()) return null
+            val index = ((percentile / 100f) * sorted.size)
+                .toInt()
+                .coerceIn(0, sorted.lastIndex)
 
-            // 3️⃣ Statistical Calculation (Mean & Std Dev)
-            val mean = filteredScores.average().toFloat()
-            val stdDev = sqrt(
-                filteredScores.map { (it - mean).toDouble().pow(2.0) }.average()
-            ).toFloat()
-
-            /**
-             * 4️⃣ Apply Security Margin
-             * For Genuine-only data, we want the threshold to be just outside
-             * the "normal" range.
-             * - Use (mean - 2 * stdDev) for high security (faster TDT).
-             * - Use (mean - 3 * stdDev) for high usability (fewer false lockouts).
-             */
-            val threshold = mean - (sensitivity * stdDev)
-
-            threshold
+            sorted[index]
         } catch (e: Exception) {
             null
         }
     }
-
 
 //    private fun calculateThreshold(
 //        validationSet: List<List<Float>>,

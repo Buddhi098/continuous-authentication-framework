@@ -44,7 +44,7 @@ object ContinuousAuthManager {
 class MainActivity : ComponentActivity() {
 
     companion object {
-        private const val TARGET_SAMPLES = 100
+        private const val TARGET_SAMPLES = 200
 
         // 🔐 TDT thresholds
         private const val TDT_LOCK_THRESHOLD = 0.5f
