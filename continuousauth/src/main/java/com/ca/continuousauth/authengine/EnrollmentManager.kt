@@ -10,6 +10,7 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import kotlin.math.abs
+import kotlin.math.pow
 import kotlin.math.sqrt
 
 class EnrollmentManager(
@@ -147,31 +148,40 @@ class EnrollmentManager(
     // --------------------------------------------------
     private fun calculateThreshold(
         validationSet: List<List<Float>>,
-        quantile: Float = 0.80f // Default to 80th percentile (0.8)
+        sensitivity: Float = 1.5f // k-factor for margin
     ): Float? {
         return try {
-            // 1️⃣ Compute raw scores
+            // 1️⃣ Extract Scores
             val rawScores = validationSet.mapNotNull { authModel.inferScore(it) }
-            if (rawScores.isEmpty()) return null
+            if (rawScores.size < 10) return null // Need a minimum sample size for stability
 
-            // 2️⃣ Sort scores ascending
-            val sortedScores = rawScores.sorted()
-            val n = sortedScores.size
+            // 2️⃣ Filter Outliers (using Interquartile Range)
+            // This prevents one "weird" accidental swipe from ruining your threshold
+            val sorted = rawScores.sorted()
+            val q1 = sorted[(sorted.size * 0.25).toInt()]
+            val q3 = sorted[(sorted.size * 0.75).toInt()]
+            val iqr = q3 - q1
 
-            // 3️⃣ Find the index for the requested quantile
-            // Formula: index = (N - 1) * percentile
-            val index = ((n - 1) * quantile).toInt().coerceIn(0, n - 1)
+            val filteredScores = sorted.filter { it in (q1 - 1.5 * iqr)..(q3 + 1.5 * iqr) }
+            if (filteredScores.isEmpty()) return null
 
-            // 4️⃣ Return the score at that index as the threshold
-            val threshold = sortedScores[index]
+            // 3️⃣ Statistical Calculation (Mean & Std Dev)
+            val mean = filteredScores.average().toFloat()
+            val stdDev = sqrt(
+                filteredScores.map { (it - mean).toDouble().pow(2.0) }.average()
+            ).toFloat()
 
-            // Optional: Log the result for debugging
-            // Logger.d("Calculated ${quantile * 100}% threshold: $threshold from $n scores")
+            /**
+             * 4️⃣ Apply Security Margin
+             * For Genuine-only data, we want the threshold to be just outside
+             * the "normal" range.
+             * - Use (mean - 2 * stdDev) for high security (faster TDT).
+             * - Use (mean - 3 * stdDev) for high usability (fewer false lockouts).
+             */
+            val threshold = mean - (sensitivity * stdDev)
 
             threshold
-
         } catch (e: Exception) {
-            Logger.e("Quantile threshold calculation error: ${e.message}", e)
             null
         }
     }

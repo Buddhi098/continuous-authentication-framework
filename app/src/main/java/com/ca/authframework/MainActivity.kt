@@ -19,6 +19,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.rememberNavController
+import com.ca.authframework.components.AppLockScreen
 import com.ca.authframework.navigation.MainNavHost
 import com.ca.authframework.ui.AppTopBar
 import com.ca.authframework.ui.BottomNavigationBar
@@ -29,7 +30,6 @@ import com.ca.continuousauth.ContinuousAuth
 import com.ca.continuousauth.states.TouchEventData
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
-import java.util.ArrayDeque
 
 /* ---------------------------------------------------------------------- */
 /*                      CONTINUOUS AUTH MANAGER                            */
@@ -44,12 +44,13 @@ object ContinuousAuthManager {
 class MainActivity : ComponentActivity() {
 
     companion object {
-        private const val TARGET_SAMPLES = 1200
-        private const val AUTH_THRESHOLD = 0.2f
-        private const val SCORE_WINDOW = 10
+        private const val TARGET_SAMPLES = 100
+
+        // 🔐 TDT thresholds
+        private const val TDT_LOCK_THRESHOLD = 0.5f
+        private const val TDT_UNLOCK_THRESHOLD = 0.6f
     }
 
-    /* 🔐 Feature flag */
     private val isEnableLock = mutableStateOf(false)
 
     private val touchEventFlow = MutableSharedFlow<TouchEventData>(
@@ -60,7 +61,6 @@ class MainActivity : ComponentActivity() {
     private lateinit var enrollmentViewModel: EnrollmentViewModel
     private lateinit var authenticationViewModel: AuthenticationViewModel
 
-    /* 🔒 Lock state (ONLY used when isEnableLock = true) */
     private val isLocked = mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -85,6 +85,7 @@ class MainActivity : ComponentActivity() {
             AuthframeworkTheme {
 
                 val navController = rememberNavController()
+
                 val lastAuthResult = authenticationViewModel.lastAuthResult
                 val isAuthRunning = authenticationViewModel.authenticationRunning
                 val evaluationRunning = authenticationViewModel.evaluationRunning
@@ -95,18 +96,19 @@ class MainActivity : ComponentActivity() {
                     } else "Unknown"
 
                 val currentScore =
-                    if ((evaluationRunning || isAuthRunning) && lastAuthResult != null) {
-                        "%.3f".format(lastAuthResult.score)
-                    } else "N/A"
+                    lastAuthResult?.score?.let { "%.3f".format(it) } ?: "N/A"
 
                 val currentAuthPercentage =
-                    if ((evaluationRunning || isAuthRunning) && lastAuthResult?.authPercentage != null) {
-                        "%.2f%%".format(lastAuthResult.authPercentage)
-                    } else "N/A"
+                    lastAuthResult?.authPercentage?.let { "%.2f%%".format(it) } ?: "N/A"
 
-                /* ---------------- MAIN APP UI (UNCHANGED) ---------------- */
                 Scaffold(
-                    topBar = { AppTopBar(status = currentAuthStatus, score = currentScore , currentAuthPercentage = currentAuthPercentage) },
+                    topBar = {
+                        AppTopBar(
+                            status = currentAuthStatus,
+                            score = currentScore,
+                            currentAuthPercentage = currentAuthPercentage
+                        )
+                    },
                     bottomBar = { BottomNavigationBar(navController) }
                 ) { innerPadding ->
 
@@ -115,9 +117,10 @@ class MainActivity : ComponentActivity() {
                             .fillMaxSize()
                             .padding(innerPadding)
                     ) {
-                        AutoLockController()
 
-                        /* App content always visible */
+                        // 🔐 NEW: TDT-BASED AUTO LOCK
+                        TdtAutoLockController()
+
                         MainNavHost(
                             navController = navController,
                             enrollmentViewModel = enrollmentViewModel,
@@ -125,14 +128,8 @@ class MainActivity : ComponentActivity() {
                             targetSamples = TARGET_SAMPLES
                         )
 
-                        /* 🔒 Lock screen overlay ONLY if enabled + locked */
                         if (isEnableLock.value && isLocked.value) {
-                            AppLockScreen(
-                                authenticationViewModel = authenticationViewModel,
-                                threshold = AUTH_THRESHOLD,
-                                scoreWindow = SCORE_WINDOW,
-                                onUnlocked = { isLocked.value = false }
-                            )
+                            AppLockScreen()
                         }
                     }
                 }
@@ -174,137 +171,28 @@ class MainActivity : ComponentActivity() {
     }
 
     /* ------------------------------------------------------------------ */
-    /*      AUTO-LOCK DECISION (CONTINUOUS, INVISIBLE)                     */
+    /*              🔐 TDT-BASED AUTO LOCK CONTROLLER                      */
     /* ------------------------------------------------------------------ */
     @Composable
-    private fun AutoLockController() {
+    private fun TdtAutoLockController() {
         if (!isEnableLock.value) return
 
-        val lastAuthResult = authenticationViewModel.lastAuthResult
-        val scoreBuffer = remember { ArrayDeque<Float>() }
+        val tdtAccuracy = authenticationViewModel.tdtAccuracy
+        val totalWindows = authenticationViewModel.totalWindows
 
-        LaunchedEffect(lastAuthResult) {
-            lastAuthResult?.let {
-                scoreBuffer.addLast(it.score)
-                if (scoreBuffer.size > SCORE_WINDOW) {
-                    scoreBuffer.removeFirst()
-                }
+        LaunchedEffect(tdtAccuracy, totalWindows) {
 
-                if (scoreBuffer.size == SCORE_WINDOW) {
-                    val meanScore = scoreBuffer.average().toFloat()
+            if (totalWindows == 0) return@LaunchedEffect
 
-                    /* 🔒 Auto-lock */
-                    if (meanScore >= AUTH_THRESHOLD) {
-                        isLocked.value = true
-                    }
-                }
-            }
-        }
-    }
-}
-
-/* ---------------------------------------------------------------------- */
-/*                           LOCK SCREEN UI                                */
-/* ---------------------------------------------------------------------- */
-
-private fun median(values: List<Float>): Float {
-    if (values.isEmpty()) return 0f
-    val sorted = values.sorted()
-    val mid = sorted.size / 2
-    return if (sorted.size % 2 == 0) {
-        (sorted[mid - 1] + sorted[mid]) / 2f
-    } else {
-        sorted[mid]
-    }
-}
-
-@Composable
-fun AppLockScreen(
-    authenticationViewModel: AuthenticationViewModel,
-    threshold: Float,
-    scoreWindow: Int,
-    onUnlocked: () -> Unit
-) {
-    val lastAuthResult = authenticationViewModel.lastAuthResult
-    val scoreBuffer = remember { ArrayDeque<Float>() }
-
-    LaunchedEffect(lastAuthResult) {
-        lastAuthResult?.let {result ->
-            var newScore = result.score ?: return@let
-
-            // -----------------------------
-            // Spike removal (last 6 values)
-            // -----------------------------
-            if (scoreBuffer.size >= 6) {
-                val lastSix = scoreBuffer.toList().takeLast(6)
-                val currentAvg = scoreBuffer.average().toFloat()
-
-                if (newScore > 3f * currentAvg) {
-                    newScore = currentAvg
-                }
+            // 🔒 Lock if trust drops
+            if (tdtAccuracy < TDT_LOCK_THRESHOLD) {
+                isLocked.value = true
             }
 
-            scoreBuffer.addLast(newScore)
-
-            if (scoreBuffer.size > scoreWindow) {
-                scoreBuffer.removeFirst()
+            // 🔓 Unlock if trust recovers
+            if (isLocked.value && tdtAccuracy >= TDT_UNLOCK_THRESHOLD) {
+                isLocked.value = false
             }
-
-            if (scoreBuffer.size == scoreWindow) {
-                val medianScore = median(scoreBuffer.toList())
-
-                /* 🔓 Unlock */
-                if (medianScore < threshold) {
-                    onUnlocked()
-                }
-            }
-        }
-    }
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(32.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-
-            Spacer(modifier = Modifier.height(48.dp))
-
-            Row(horizontalArrangement = Arrangement.Center) {
-                repeat(3) {
-                    Box(
-                        modifier = Modifier
-                            .padding(horizontal = 12.dp)
-                            .size(56.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.25f))
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(40.dp))
-
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                    .verticalScroll(rememberScrollState())
-            )
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            Text(
-                text = "Interact naturally",
-                style = MaterialTheme.typography.bodySmall,
-                color = Color.Gray
-            )
         }
     }
 }

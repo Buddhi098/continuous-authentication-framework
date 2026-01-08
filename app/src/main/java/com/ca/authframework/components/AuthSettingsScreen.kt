@@ -55,7 +55,7 @@ fun AuthSettingsScreen(
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Text(
-                    "Evaluation",
+                    "Authentication Evaluation",
                     style = MaterialTheme.typography.titleLarge
                 )
                 Divider(Modifier.padding(vertical = 8.dp))

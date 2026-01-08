@@ -7,19 +7,20 @@ import androidx.lifecycle.ViewModel
 import com.ca.continuousauth.ContinuousAuth
 import com.ca.continuousauth.states.AuthVectorResult
 import kotlinx.coroutines.flow.StateFlow
+import java.util.ArrayDeque
 
 class AuthenticationViewModel(
     private val auth: ContinuousAuth
 ) : ViewModel() {
 
-    // -----------------------------
-    // Auth state
-    // -----------------------------
+    /* ----------------------------- */
+    /* Auth state                    */
+    /* ----------------------------- */
     val isCheckpointExists: StateFlow<Boolean> = auth.isCheckpointExists
 
-    // -----------------------------
-    // UI State
-    // -----------------------------
+    /* ----------------------------- */
+    /* UI State                      */
+    /* ----------------------------- */
     var authenticationRunning by mutableStateOf(false)
         private set
 
@@ -29,9 +30,9 @@ class AuthenticationViewModel(
     var errorMessage by mutableStateOf("")
         private set
 
-    // -----------------------------
-    // Evaluation State
-    // -----------------------------
+    /* ----------------------------- */
+    /* Evaluation State              */
+    /* ----------------------------- */
     var evaluationRunning by mutableStateOf(false)
         private set
 
@@ -50,15 +51,31 @@ class AuthenticationViewModel(
     var averageScore by mutableStateOf(0f)
         private set
 
-    var medianScore by mutableStateOf(0f)   // ✅ NEW
+    var medianScore by mutableStateOf(0f)
         private set
 
     private var totalScoreSum = 0f
-    private val scoreBuffer = mutableListOf<Float>() // ✅ for median
+    private val scoreBuffer = mutableListOf<Float>()
 
-    // -----------------------------
-    // Start Authentication
-    // -----------------------------
+    /* ================================================= */
+    /* ✅ TDT NON-OVERLAPPING WINDOW (GLOBAL STATE)       */
+    /* ================================================= */
+    private val tdtWindowSize = 10
+    private val authWindow = ArrayDeque<Boolean>(tdtWindowSize)
+
+    var totalWindows by mutableStateOf(0)
+        private set
+
+    var authenticatedWindows by mutableStateOf(0)
+        private set
+
+    var tdtAccuracy by mutableStateOf(0f)
+        private set
+    /* ================================================= */
+
+    /* ----------------------------- */
+    /* Start Authentication          */
+    /* ----------------------------- */
     fun startAuthentication() {
         errorMessage = ""
         lastAuthResult = null
@@ -72,21 +89,24 @@ class AuthenticationViewModel(
 
         auth.startAuthentication { result ->
             lastAuthResult = result
+
+            // ✅ UPDATE TDT DURING LIVE AUTH
+            updateTdt(result.isAuthenticated)
         }
     }
 
-    // -----------------------------
-    // Stop Authentication
-    // -----------------------------
+    /* ----------------------------- */
+    /* Stop Authentication           */
+    /* ----------------------------- */
     fun stopAuthentication() {
         authenticationRunning = false
         lastAuthResult = null
         auth.stopAuthentication()
     }
 
-    // -----------------------------
-    // Evaluation Function
-    // -----------------------------
+    /* ----------------------------- */
+    /* Evaluation Function           */
+    /* ----------------------------- */
     fun startEvaluation(samples: Int) {
         if (!isCheckpointExists.value) {
             errorMessage = "Authentication model not enrolled."
@@ -102,6 +122,10 @@ class AuthenticationViewModel(
         medianScore = 0f
         totalScoreSum = 0f
         scoreBuffer.clear()
+
+        // 🔄 Reset TDT
+        resetTdt()
+
         evaluationRunning = true
 
         auth.startAuthentication { result ->
@@ -113,18 +137,18 @@ class AuthenticationViewModel(
                 acceptedCount++
             }
 
-            // Auth percentage
             authPercentage =
                 (acceptedCount.toFloat() / processedSamples.toFloat()) * 100f
 
-            // Score tracking
             result.score?.let { score ->
                 totalScoreSum += score
                 averageScore = totalScoreSum / processedSamples
-
                 scoreBuffer.add(score)
                 medianScore = scoreBuffer.median()
             }
+
+            // ✅ UPDATE TDT DURING EVALUATION
+            updateTdt(result.isAuthenticated)
 
             lastAuthResult = result
 
@@ -138,11 +162,46 @@ class AuthenticationViewModel(
         evaluationRunning = false
         auth.stopAuthentication()
     }
+
+    /* ================================================= */
+    /* ✅ TDT CORE LOGIC (REUSABLE)                      */
+    /* ================================================= */
+    private fun updateTdt(isAuthenticated: Boolean) {
+        authWindow.addLast(isAuthenticated)
+
+        if (authWindow.size == tdtWindowSize) {
+
+            val authenticatedCount =
+                authWindow.count { it }
+
+            val isAuthenticatedWindow =
+                (authenticatedCount.toFloat() / tdtWindowSize) >= 0.5f
+
+            totalWindows++
+
+            if (isAuthenticatedWindow) {
+                authenticatedWindows++
+            }
+
+            tdtAccuracy =
+                authenticatedWindows.toFloat() / totalWindows.toFloat()
+
+            // 🔁 NON-OVERLAPPING → CLEAR WINDOW
+            authWindow.clear()
+        }
+    }
+
+    private fun resetTdt() {
+        authWindow.clear()
+        totalWindows = 0
+        authenticatedWindows = 0
+        tdtAccuracy = 0f
+    }
 }
 
-/* -----------------------------
- * Helper: Median
- * ----------------------------- */
+/* ----------------------------- */
+/* Helper: Median                */
+/* ----------------------------- */
 private fun List<Float>.median(): Float {
     if (isEmpty()) return 0f
     val sorted = sorted()
