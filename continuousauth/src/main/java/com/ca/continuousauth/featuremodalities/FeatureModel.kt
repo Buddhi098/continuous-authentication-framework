@@ -116,8 +116,8 @@ class FeatureModel {
         ) { linearAccel, totalAccel, gyro, touch ->
 
             val fusedMap = mapOf(
-//                "linearAccel" to listOf(linearAccel),
-                "totalAccel" to listOf(totalAccel),
+                "linearAccel" to listOf(linearAccel),
+//                "totalAccel" to listOf(totalAccel),
                 "gyro" to listOf(gyro),
                 "touch" to listOf(touch)
             )

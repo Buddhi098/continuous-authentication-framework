@@ -145,25 +145,73 @@ class EnrollmentManager(
 
     // --------------------------------------------------
     // Threshold Calculation
-    // --------------------------------------------------
-    private fun calculateThreshold(
+    // -------------------------------------------------
+
+    // Optimization: Use FloatArray instead of List<Float> to save boxing overhead
+    fun calculateThreshold(
         validationSet: List<List<Float>>,
-        percentile: Float = 85f
+        percentile: Float = 90f,
+        strictness: Float = 1.5f // Standard IQR multiplier (1.5 is standard, 3.0 is loose)
     ): Float? {
-        return try {
-            val scores = validationSet.mapNotNull { authModel.inferScore(it) }
-            if (scores.size < 20) return null
-
-            val sorted = scores.sorted()
-
-            val index = ((percentile / 100f) * sorted.size)
-                .toInt()
-                .coerceIn(0, sorted.lastIndex)
-
-            sorted[index]
-        } catch (e: Exception) {
-            null
+        // 1. Gather scores (reuse ArrayList to avoid resizing overhead)
+        val scores = ArrayList<Float>(validationSet.size)
+        for (vector in validationSet) {
+            try {
+                val score = authModel.inferScore(vector)
+                // Optional: Sanity check for NaNs or Infinity
+                if (!score?.isNaN()!! && !score.isInfinite()) {
+                    scores.add(score)
+                }
+            } catch (e: Exception) {
+                // Log error if necessary, but keep stream processing
+            }
         }
+
+        if (scores.size < 20) return null
+
+        // 2. Sort In-Place (Required for both IQR and Percentile)
+        scores.sort()
+
+        // 3. Calculate IQR (Interquartile Range)
+        // We treat the sorted list as our distribution
+        val q1Index = (scores.size * 0.25).toInt()
+        val q3Index = (scores.size * 0.75).toInt()
+
+        val q1 = scores[q1Index]
+        val q3 = scores[q3Index]
+        val iqr = q3 - q1
+
+        val lowerFence = q1 - (strictness * iqr)
+        val upperFence = q3 + (strictness * iqr)
+
+        // 4. Find valid range indices (Zero-Copy Optimization)
+        // We only need to find where valid data starts and ends in the sorted list
+        var validStartIndex = 0
+        var validEndIndex = scores.lastIndex
+
+        // Move start index forward until >= lowerFence
+        while (validStartIndex <= validEndIndex && scores[validStartIndex] < lowerFence) {
+            validStartIndex++
+        }
+
+        // Move end index backward until <= upperFence
+        while (validEndIndex >= validStartIndex && scores[validEndIndex] > upperFence) {
+            validEndIndex--
+        }
+
+        val validCount = (validEndIndex - validStartIndex) + 1
+        if (validCount < 10) return null // Too few valid samples after filtering
+
+        // 5. Calculate Threshold on the "Virtual" Filtered Set
+        // We calculate which index in the FULL sorted list corresponds to the percentile
+        // of the VALID subset.
+        val percentileRank = (percentile / 100f) * validCount
+        val targetIndex = validStartIndex + percentileRank.toInt()
+
+        // Clamp to ensure we stay within valid bounds
+        val safeIndex = targetIndex.coerceIn(validStartIndex, validEndIndex)
+
+        return scores[safeIndex]
     }
 
 //    private fun calculateThreshold(
