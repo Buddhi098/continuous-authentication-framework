@@ -5,27 +5,20 @@ import android.view.MotionEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.rememberNavController
-import com.ca.authframework.components.AppLockScreen
-import com.ca.authframework.navigation.MainNavHost
-import com.ca.authframework.ui.AppTopBar
-import com.ca.authframework.ui.BottomNavigationBar
-import com.ca.authframework.ui.theme.AuthframeworkTheme
-import com.ca.authframework.viewmodels.AuthenticationViewModel
-import com.ca.authframework.viewmodels.EnrollmentViewModel
+import com.ca.authframework.core.ui.components.AppLockScreen
+import com.ca.authframework.core.ui.layout.AppTopBar
+import com.ca.authframework.core.ui.layout.BottomNavigationBar
+import com.ca.authframework.core.ui.navigation.MainNavHost
+import com.ca.authframework.core.ui.theme.AuthframeworkTheme
+import com.ca.authframework.features.authentication.AuthenticationViewModel
+import com.ca.authframework.features.dashboard.DashboardViewModel
+import com.ca.authframework.features.enrollment.EnrollmentViewModel
+import com.ca.authframework.features.evaluation.EvaluationViewModel
 import com.ca.continuousauth.ContinuousAuth
 import com.ca.continuousauth.states.TouchEventData
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -44,7 +37,7 @@ object ContinuousAuthManager {
 class MainActivity : ComponentActivity() {
 
     companion object {
-        private const val TARGET_SAMPLES = 1000
+        private const val TARGET_SAMPLES = 200
 
         // 🔐 TDT thresholds
         private const val TDT_LOCK_THRESHOLD = 0.5f
@@ -53,13 +46,12 @@ class MainActivity : ComponentActivity() {
 
     private val isEnableLock = mutableStateOf(false)
 
-    private val touchEventFlow = MutableSharedFlow<TouchEventData>(
-        replay = 0,
-        extraBufferCapacity = 256
-    )
+    private val touchEventFlow =
+            MutableSharedFlow<TouchEventData>(replay = 0, extraBufferCapacity = 256)
 
     private lateinit var enrollmentViewModel: EnrollmentViewModel
     private lateinit var authenticationViewModel: AuthenticationViewModel
+    private lateinit var evaluationViewModel: EvaluationViewModel
 
     private val isLocked = mutableStateOf(false)
 
@@ -67,65 +59,68 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        ContinuousAuthManager.continuousAuth = ContinuousAuth(
-            context = applicationContext,
-            touchEventFlow = touchEventFlow.asSharedFlow(),
-            enrollmentSamples = TARGET_SAMPLES,
-            shouldLogFeatureVector = true,
-            enableLog = true
-        )
+        ContinuousAuthManager.continuousAuth =
+                ContinuousAuth(
+                        context = applicationContext,
+                        touchEventFlow = touchEventFlow.asSharedFlow(),
+                        enrollmentSamples = TARGET_SAMPLES,
+                        shouldLogFeatureVector = true,
+                        enableLog = true
+                )
 
         enrollmentViewModel =
-            EnrollmentViewModel(applicationContext, ContinuousAuthManager.continuousAuth)
+                EnrollmentViewModel(applicationContext, ContinuousAuthManager.continuousAuth)
 
-        authenticationViewModel =
-            AuthenticationViewModel(ContinuousAuthManager.continuousAuth)
+        val dashboardViewModel = DashboardViewModel(application)
+
+        authenticationViewModel = AuthenticationViewModel(ContinuousAuthManager.continuousAuth)
+        evaluationViewModel =
+                EvaluationViewModel(
+                        applicationContext,
+                        ContinuousAuthManager.continuousAuth,
+                        authenticationViewModel
+                )
 
         setContent {
             AuthframeworkTheme {
-
                 val navController = rememberNavController()
 
                 val lastAuthResult = authenticationViewModel.lastAuthResult
                 val isAuthRunning = authenticationViewModel.authenticationRunning
-                val evaluationRunning = authenticationViewModel.evaluationRunning
+                val evaluationRunning = evaluationViewModel.evaluationRunning
 
                 val currentAuthStatus =
-                    if ((evaluationRunning || isAuthRunning) && lastAuthResult != null) {
-                        if (lastAuthResult.isAuthenticated) "Authenticated" else "Rejected"
-                    } else "Unknown"
+                        if ((evaluationRunning || isAuthRunning) && lastAuthResult != null) {
+                            if (lastAuthResult.isAuthenticated) "Authenticated" else "Rejected"
+                        } else "Unknown"
 
-                val currentScore =
-                    lastAuthResult?.score?.let { "%.3f".format(it) } ?: "N/A"
+                val currentScore = lastAuthResult?.score?.let { "%.3f".format(it) } ?: "N/A"
 
                 val currentAuthPercentage =
-                    lastAuthResult?.authPercentage?.let { "%.2f%%".format(it) } ?: "N/A"
+                        lastAuthResult?.authPercentage?.let { "%.2f%%".format(it) } ?: "N/A"
 
                 Scaffold(
-                    topBar = {
-                        AppTopBar(
-                            status = currentAuthStatus,
-                            score = currentScore,
-                            currentAuthPercentage = currentAuthPercentage
-                        )
-                    },
-                    bottomBar = { BottomNavigationBar(navController) }
+                        topBar = {
+                            AppTopBar(
+                                    status = currentAuthStatus,
+                                    score = currentScore,
+                                    currentAuthPercentage = currentAuthPercentage
+                            )
+                        },
+                        bottomBar = { BottomNavigationBar(navController) }
                 ) { innerPadding ->
-
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(innerPadding)
-                    ) {
+                    Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
 
                         // 🔐 NEW: TDT-BASED AUTO LOCK
                         TdtAutoLockController()
 
                         MainNavHost(
-                            navController = navController,
-                            enrollmentViewModel = enrollmentViewModel,
-                            authenticationViewModel = authenticationViewModel,
-                            targetSamples = TARGET_SAMPLES
+                                navController = navController,
+                                dashboardViewModel = dashboardViewModel,
+                                enrollmentViewModel = enrollmentViewModel,
+                                authenticationViewModel = authenticationViewModel,
+                                evaluationViewModel = evaluationViewModel,
+                                targetSamples = TARGET_SAMPLES
                         )
 
                         if (isEnableLock.value && isLocked.value) {
@@ -141,19 +136,20 @@ class MainActivity : ComponentActivity() {
     /*                  GLOBAL TOUCH INTERCEPTION                          */
     /* ------------------------------------------------------------------ */
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
-        val touchData = TouchEventData(
-            action = event.actionMasked,
-            timestamp = event.eventTime,
-            downTime = event.downTime,
-            x = event.x,
-            y = event.y,
-            pressure = event.pressure,
-            size = event.size,
-            orientation = event.orientation,
-            touchMajor = event.touchMajor,
-            touchMinor = event.touchMinor,
-            pointerCount = event.pointerCount
-        )
+        val touchData =
+                TouchEventData(
+                        action = event.actionMasked,
+                        timestamp = event.eventTime,
+                        downTime = event.downTime,
+                        x = event.x,
+                        y = event.y,
+                        pressure = event.pressure,
+                        size = event.size,
+                        orientation = event.orientation,
+                        touchMajor = event.touchMajor,
+                        touchMinor = event.touchMinor,
+                        pointerCount = event.pointerCount
+                )
 
         touchEventFlow.tryEmit(touchData)
         return super.dispatchTouchEvent(event)
@@ -161,7 +157,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-//        authenticationViewModel.startAuthentication()
+        //        authenticationViewModel.startAuthentication()
     }
 
     override fun onPause() {
@@ -181,7 +177,6 @@ class MainActivity : ComponentActivity() {
         val totalWindows = authenticationViewModel.totalWindows
 
         LaunchedEffect(tdtAccuracy, totalWindows) {
-
             if (totalWindows == 0) return@LaunchedEffect
 
             // 🔒 Lock if trust drops
