@@ -39,6 +39,17 @@ fun EnrollmentScreen(viewModel: EnrollmentViewModel, targetSamples: Int = 100) {
         var showClearDialog by remember { mutableStateOf(false) }
         var showInstructions by remember { mutableStateOf(true) }
 
+        fun isResultFailed(msg: String): Boolean =
+                msg.contains("failed", true) || msg.contains("error", true)
+
+        fun getStatusColor(msg: String): Color {
+                return when {
+                        msg.contains("failed", true) || msg.contains("error", true) -> ErrorDark
+                        msg.contains("trained", true) -> SuccessDark
+                        else -> Color(0xFF2196F3) // Info Blue
+                }
+        }
+
         Column(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(24.dp),
@@ -152,6 +163,113 @@ fun EnrollmentScreen(viewModel: EnrollmentViewModel, targetSamples: Int = 100) {
                                                                 MaterialTheme.colorScheme
                                                                         .onSurfaceVariant
                                                 )
+                                        }
+                                }
+
+                                // --- Continuous Learning Card ---
+                                val storedVectorCount by
+                                        viewModel.storedVectorCount.collectAsState()
+                                val maxStoredVectors = viewModel.maxStoredVectorCount
+                                val isReEnrollmentReady = storedVectorCount >= maxStoredVectors
+
+                                if (threshold > 0f) {
+                                        Card(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                colors =
+                                                        CardDefaults.cardColors(
+                                                                containerColor =
+                                                                        MaterialTheme.colorScheme
+                                                                                .surfaceVariant
+                                                                                .copy(alpha = 0.3f)
+                                                        ),
+                                                shape = RoundedCornerShape(12.dp)
+                                        ) {
+                                                Column(
+                                                        modifier = Modifier.padding(16.dp),
+                                                        verticalArrangement =
+                                                                Arrangement.spacedBy(12.dp)
+                                                ) {
+                                                        Row(
+                                                                verticalAlignment =
+                                                                        Alignment.CenterVertically,
+                                                                horizontalArrangement =
+                                                                        Arrangement.SpaceBetween,
+                                                                modifier = Modifier.fillMaxWidth()
+                                                        ) {
+                                                                Text(
+                                                                        text =
+                                                                                "Continuous Learning",
+                                                                        style =
+                                                                                MaterialTheme
+                                                                                        .typography
+                                                                                        .titleSmall,
+                                                                        fontWeight = FontWeight.Bold
+                                                                )
+                                                                Text(
+                                                                        text =
+                                                                                "$storedVectorCount / $maxStoredVectors samples",
+                                                                        style =
+                                                                                MaterialTheme
+                                                                                        .typography
+                                                                                        .labelSmall,
+                                                                        color =
+                                                                                MaterialTheme
+                                                                                        .colorScheme
+                                                                                        .onSurfaceVariant
+                                                                )
+                                                        }
+
+                                                        LinearProgressIndicator(
+                                                                progress =
+                                                                        (storedVectorCount
+                                                                                        .toFloat() /
+                                                                                        maxStoredVectors)
+                                                                                .coerceIn(0f, 1f),
+                                                                modifier =
+                                                                        Modifier.fillMaxWidth()
+                                                                                .height(8.dp),
+                                                                trackColor =
+                                                                        MaterialTheme.colorScheme
+                                                                                .surfaceVariant,
+                                                                color =
+                                                                        if (isReEnrollmentReady)
+                                                                                SuccessDark
+                                                                        else
+                                                                                MaterialTheme
+                                                                                        .colorScheme
+                                                                                        .primary,
+                                                                strokeCap = StrokeCap.Round
+                                                        )
+
+                                                        Button(
+                                                                onClick = { viewModel.reEnroll() },
+                                                                enabled = isReEnrollmentReady,
+                                                                modifier = Modifier.fillMaxWidth(),
+                                                                colors =
+                                                                        ButtonDefaults.buttonColors(
+                                                                                containerColor =
+                                                                                        MaterialTheme
+                                                                                                .colorScheme
+                                                                                                .primaryContainer,
+                                                                                contentColor =
+                                                                                        MaterialTheme
+                                                                                                .colorScheme
+                                                                                                .onPrimaryContainer,
+                                                                                disabledContainerColor =
+                                                                                        MaterialTheme
+                                                                                                .colorScheme
+                                                                                                .surfaceVariant,
+                                                                                disabledContentColor =
+                                                                                        MaterialTheme
+                                                                                                .colorScheme
+                                                                                                .onSurfaceVariant
+                                                                                                .copy(
+                                                                                                        alpha =
+                                                                                                                0.38f
+                                                                                                )
+                                                                        )
+                                                        ) { Text("Adapt Model (Re-enroll)") }
+                                                }
                                         }
                                 }
 
@@ -329,16 +447,5 @@ fun EnrollmentScreen(viewModel: EnrollmentViewModel, targetSamples: Int = 100) {
                                 TextButton(onClick = { showClearDialog = false }) { Text("Cancel") }
                         }
                 )
-        }
-}
-
-private fun isResultFailed(msg: String): Boolean =
-        msg.contains("failed", true) || msg.contains("error", true)
-
-private fun getStatusColor(msg: String): Color {
-        return when {
-                msg.contains("failed", true) || msg.contains("error", true) -> ErrorDark
-                msg.contains("trained", true) -> SuccessDark
-                else -> Color(0xFF2196F3) // Info Blue
         }
 }

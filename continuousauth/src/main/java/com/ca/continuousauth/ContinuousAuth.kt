@@ -62,7 +62,7 @@ class ContinuousAuth(
                     checkpointFile = checkpointFile,
                     thresholdFile = thresholdFile,
                     storedVectorsFile = storedVectorsFile,
-                    maxStoredVectors = 10
+                    maxStoredVectors = AuthConfigManager.config.maxStoredAuthenticatedVectors
             )
 
     private val enrollmentManager =
@@ -417,6 +417,9 @@ class ContinuousAuth(
                             val result = authManager.authenticateFeatureVector(scaledVector)
                             val durationMs = (System.nanoTime() - startTime) / 1_000_000.0
 
+                            // Check for re-enrollment availability
+                            checkReEnrollmentStatus()
+
                             Logger.d(
                                     "Auth execution time: ${"%.3f".format(durationMs)}ms. Authenticated: ${result.isAuthenticated}"
                             )
@@ -457,12 +460,74 @@ class ContinuousAuth(
         Logger.d("Authentication stopped")
     }
 
+    // --------------------------------------------------
+    // Re-enrollment
+    // --------------------------------------------------
+    private val _isReEnrollmentAvailable = MutableStateFlow(false)
+    val isReEnrollmentAvailable: StateFlow<Boolean> = _isReEnrollmentAvailable.asStateFlow()
+
+    fun checkReEnrollmentStatus() {
+        _isReEnrollmentAvailable.value = authManager.isReadyForReEnrollment()
+    }
+
+    val storedVectorCount: StateFlow<Int> = authManager.storedVectorCount
+    val maxStoredVectors: Int = AuthConfigManager.config.maxStoredAuthenticatedVectors
+
+    fun reEnroll(onResult: (EnrollmentResult) -> Unit) {
+        if (isAuthenticating.get()) {
+            stopAuthentication()
+        }
+
+        scope.launch {
+            try {
+                val vectors = authManager.getStoredVectors()
+                if (vectors.isEmpty()) {
+                    withContext(Dispatchers.Main) {
+                        onResult(
+                                EnrollmentResult(
+                                        false,
+                                        message = "No vectors available for re-enrollment"
+                                )
+                        )
+                    }
+                    return@launch
+                }
+
+                Logger.d("Starting re-enrollment with ${vectors.size} vectors")
+                // NOTE: Vectors are already scaled from previous sessions.
+                // We reuse them to train a new model.
+                val result = enrollmentManager.enroll(vectors)
+
+                if (result.success) {
+                    Logger.d("Re-enrollment successful")
+
+                    authManager.clearStoredVectors()
+                    checkReEnrollmentStatus()
+
+                    // Force refresh of model for next auth session
+                    authManager.loadModel()
+                    authManager.loadThresholdOnce()
+                }
+
+                withContext(Dispatchers.Main) { onResult(result) }
+            } catch (e: Exception) {
+                Logger.e("Re-enrollment failed: ${e.message}", e)
+                withContext(Dispatchers.Main) {
+                    onResult(
+                            EnrollmentResult(false, message = "Re-enrollment failed: ${e.message}")
+                    )
+                }
+            }
+        }
+    }
+
     fun clearEnrollmentFiles(): Boolean {
         return try {
             checkpointFile.takeIf { it.exists() }?.delete()
             thresholdFile.takeIf { it.exists() }?.delete()
             metadataFile.takeIf { it.exists() }?.delete()
             stopAuthentication()
+            authManager.clearStoredVectors()
             _isCheckpointExists.value = checkpointFile.exists()
             Logger.d("Enrollment files deleted successfully")
             true

@@ -33,7 +33,12 @@ class EnrollmentViewModel(private val context: Context, private val auth: Contin
     val threshold: StateFlow<Float> = _threshold.asStateFlow()
 
     private val _trainedSampleCount = MutableStateFlow<Int?>(null)
+
     val trainedSampleCount: StateFlow<Int?> = _trainedSampleCount.asStateFlow()
+
+    val isReEnrollmentAvailable: StateFlow<Boolean> = auth.isReEnrollmentAvailable
+    val storedVectorCount: StateFlow<Int> = auth.storedVectorCount
+    val maxStoredVectorCount: Int = auth.maxStoredVectors
 
     private var enrollmentTriggered = false
     private var progressJob: Job? = null
@@ -138,6 +143,22 @@ class EnrollmentViewModel(private val context: Context, private val auth: Contin
         } catch (e: Exception) {
             Log.e(TAG, "Failed to clear enrollment files", e)
             _statusMessage.value = "Failed to clear enrollment files"
+        }
+    }
+
+    fun reEnroll() {
+        viewModelScope.launch {
+            _statusMessage.value = "Re-enrolling..."
+            auth.reEnroll { result ->
+                if (result.success) {
+                    _statusMessage.value =
+                            "Re-enrollment successful. New Threshold: ${"%.2f".format(result.threshold)}"
+                    _threshold.value = result.threshold ?: 0f
+                    _trainedSampleCount.value = result.trainedSampleCount
+                } else {
+                    _statusMessage.value = result.message ?: "Re-enrollment failed"
+                }
+            }
         }
     }
 

@@ -8,17 +8,20 @@ import com.ca.continuousauth.utils.Logger
 import java.io.*
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 class AuthenticationManager(
-    private val context: Context,
-    private val authModel: AuthModel,
-    private val checkpointFile: File,
-    private val thresholdFile: File,
-    private val storedVectorsFile: File,
-    private val maxStoredVectors: Int = AuthConfigManager.config.maxStoredAuthenticatedVectors,
-    private val coroutineScope: CoroutineScope =
+        private val context: Context,
+        private val authModel: AuthModel,
+        private val checkpointFile: File,
+        private val thresholdFile: File,
+        private val storedVectorsFile: File,
+        private val maxStoredVectors: Int = AuthConfigManager.config.maxStoredAuthenticatedVectors,
+        private val coroutineScope: CoroutineScope =
                 CoroutineScope(Dispatchers.Default + SupervisorJob())
 ) {
 
@@ -34,6 +37,9 @@ class AuthenticationManager(
     // though we often update them in the auth flow.
     private var totalAuthentications = AtomicInteger(0)
     private var successfulAuthentications = AtomicInteger(0)
+
+    private val _storedVectorCount = MutableStateFlow(0)
+    val storedVectorCount: StateFlow<Int> = _storedVectorCount.asStateFlow()
 
     init {
         Logger.d("AuthenticationManager initializing")
@@ -198,6 +204,7 @@ class AuthenticationManager(
                     repeat(removed) { authenticatedVectors.removeAt(0) }
                     Logger.d("Trimmed authenticated vectors, removed=$removed")
                 }
+                _storedVectorCount.value = authenticatedVectors.size
 
                 // Save to disk (on IO dispatcher)
                 withContext(Dispatchers.IO) { saveStoredVectors() }
@@ -238,6 +245,7 @@ class AuthenticationManager(
                         if (!vectors.isNullOrEmpty()) {
                             authenticatedVectors.clear()
                             authenticatedVectors.addAll(vectors)
+                            _storedVectorCount.value = authenticatedVectors.size
                             Logger.d("Loaded ${vectors.size} authenticated vectors from disk")
                         }
                     }
@@ -278,5 +286,22 @@ class AuthenticationManager(
     fun getAuthenticationPercentage(): Float? {
         val total = totalAuthentications.get()
         return if (total > 0) (successfulAuthentications.get().toFloat() / total) * 100f else null
+    }
+
+    fun isReadyForReEnrollment(): Boolean = runBlocking {
+        vectorLock.withLock { authenticatedVectors.size >= maxStoredVectors }
+    }
+
+    fun clearStoredVectors() = runBlocking {
+        vectorLock.withLock {
+            authenticatedVectors.clear()
+            withContext(Dispatchers.IO) {
+                if (storedVectorsFile.exists()) {
+                    storedVectorsFile.delete()
+                }
+            }
+            _storedVectorCount.value = 0
+            Logger.d("Stored vectors cleared")
+        }
     }
 }

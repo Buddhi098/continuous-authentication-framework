@@ -39,21 +39,21 @@ class EvaluationViewModel(
     private var totalScoreSum = 0.0
     private val scoreBuffer = mutableListOf<Float>()
 
-    // Delegate global metrics to AuthenticationViewModel
-    val lastAuthResult
-        get() = authViewModel.lastAuthResult
+    var lastAuthResult by mutableStateOf<com.ca.continuousauth.states.AuthVectorResult?>(null)
+        private set
 
-    val tdtAccuracy: Double
-        get() = authViewModel.tdtAccuracy.toDouble()
+    // Local TDT State
+    private val tdtWindowSize = 10
+    private val authWindow = ArrayDeque<Boolean>(tdtWindowSize)
 
-    val tdtWindowSize: Int
-        get() = authViewModel.tdtWindowSize
+    var tdtAccuracy by mutableStateOf(0.0)
+        private set
 
-    val authenticatedWindows: Int
-        get() = authViewModel.authenticatedWindows
+    var authenticatedWindows by mutableStateOf(0)
+        private set
 
-    val totalWindows: Int
-        get() = authViewModel.totalWindows
+    var totalWindows by mutableStateOf(0)
+        private set
 
     /** Start evaluation with specified number of samples */
     fun startEvaluation(samples: Int) {
@@ -64,8 +64,27 @@ class EvaluationViewModel(
             return
         }
 
-        // Reset local stats
+        resetStats()
         targetSamples = samples
+        evaluationRunning = true
+
+        // Start authentication process
+        auth.startAuthentication { result ->
+            if (!evaluationRunning) return@startAuthentication
+
+            processResult(result)
+
+            // 2. Push to Global Auth State (TDT, Top Bar)
+            authViewModel.processAuthResult(result)
+
+            // 3. Check for Completion
+            if (targetSamples > 0 && processedSamples >= targetSamples) {
+                stopEvaluation()
+            }
+        }
+    }
+
+    private fun resetStats() {
         processedSamples = 0
         acceptedCount = 0
         totalScoreSum = 0.0
@@ -73,35 +92,53 @@ class EvaluationViewModel(
         authPercentage = 0.0
         averageScore = 0.0
         medianScore = 0.0
+        lastAuthResult = null
 
-        evaluationRunning = true
+        // Reset TDT
+        authWindow.clear()
+        totalWindows = 0
+        authenticatedWindows = 0
+        tdtAccuracy = 0.0
+    }
 
-        // Start authentication process
-        auth.startAuthentication { result ->
-            if (!evaluationRunning) return@startAuthentication
+    private fun processResult(result: com.ca.continuousauth.states.AuthVectorResult) {
+        lastAuthResult = result
+        processedSamples++
 
-            processedSamples++
+        // 1. Update Local Metrics
+        if (result.isAuthenticated) {
+            acceptedCount++
+        }
+        authPercentage = (acceptedCount.toDouble() / processedSamples) * 100.0
 
-            // 1. Update Local Metrics
-            if (result.isAuthenticated) {
-                acceptedCount++
+        result.score?.let { score ->
+            totalScoreSum += score
+            averageScore = totalScoreSum / processedSamples
+            scoreBuffer.add(score)
+            medianScore = calculateMedian(scoreBuffer)
+        }
+
+        // 2. Update Local TDT
+        updateTdt(result.isAuthenticated)
+    }
+
+    private fun updateTdt(isAuthenticated: Boolean) {
+        authWindow.addLast(isAuthenticated)
+
+        if (authWindow.size == tdtWindowSize) {
+            val authenticatedCount = authWindow.count { it }
+            val isAuthenticatedWindow = (authenticatedCount.toFloat() / tdtWindowSize) >= 0.5f
+
+            totalWindows++
+
+            if (isAuthenticatedWindow) {
+                authenticatedWindows++
             }
-            authPercentage = (acceptedCount.toDouble() / processedSamples) * 100.0
 
-            result.score?.let { score ->
-                totalScoreSum += score
-                averageScore = totalScoreSum / processedSamples
-                scoreBuffer.add(score)
-                medianScore = calculateMedian(scoreBuffer)
-            }
+            tdtAccuracy = authenticatedWindows.toDouble() / totalWindows.toDouble()
 
-            // 2. Push to Global Auth State (TDT, Top Bar)
-            authViewModel.processAuthResult(result)
-
-            // 3. Check for Completion
-            if (processedSamples >= targetSamples) {
-                stopEvaluation()
-            }
+            // Non-Overlapping Window -> Clear
+            authWindow.clear()
         }
     }
 
