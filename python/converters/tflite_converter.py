@@ -15,7 +15,7 @@ class TFLiteConverter:
     
     Supports:
     - SavedModel export with custom signatures
-    - TFLite conversion with optional quantization
+    - LiteRT conversion with optional quantization
     - Full pipeline from model to .tflite file
     """
     
@@ -71,7 +71,7 @@ class TFLiteConverter:
         quantization: Optional[str] = None
     ) -> Path:
         """
-        Convert SavedModel to TFLite format.
+        Convert SavedModel to LiteRT format.
         
         Args:
             saved_model_path: Path to the SavedModel directory
@@ -89,7 +89,7 @@ class TFLiteConverter:
         if output_path.exists():
             output_path.unlink()
         
-        print(f"Converting to TFLite...")
+        print(f"Converting to LiteRT model...")
         
         # Set up converter
         if signature_keys:
@@ -123,7 +123,7 @@ class TFLiteConverter:
         with open(output_path, "wb") as f:
             f.write(tflite_model)
         
-        print(f"TFLite model saved to: {output_path}")
+        print(f"LiteRT model saved to: {output_path}")
         return output_path
     
     def convert(

@@ -4,7 +4,6 @@ import android.content.Context
 import android.content.res.AssetFileDescriptor
 import com.ca.continuousauth.config.AuthConfigManager
 import com.ca.continuousauth.utils.Logger
-import org.tensorflow.lite.Interpreter
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -13,13 +12,18 @@ import java.io.ObjectOutputStream
 import java.nio.ByteBuffer
 import java.nio.FloatBuffer
 import java.nio.channels.FileChannel
-import kotlin.random.Random
+import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.withLock
+import org.tensorflow.lite.Interpreter
 
 /**
- * Manages the TFLite Autoencoder model for both Inference, On-Device Training,
- * and Checkpoint Management (Save/Restore).
+ * Manages the TFLite Autoencoder model for both Inference, On-Device Training, and Checkpoint
+ * Management (Save/Restore).
+ *
+ * Thread-Safety: All public methods accessing the interpreter are thread-safe via [ReentrantLock].
+ * Performance: Reuses standard buffers for inference to minimize allocation overhead.
  */
-class AuthModel(private val context: Context) {
+class AuthModel(private val context: Context) : AutoCloseable {
 
     companion object {
         private val MODEL_FILENAME = AuthConfigManager.config.modelFileName
@@ -38,30 +42,56 @@ class AuthModel(private val context: Context) {
         private val OUTPUT_LOSS = AuthConfigManager.config.outputLoss
         private val OUTPUT_STATUS = AuthConfigManager.config.outputStatus
         private val RECONSTRUCTION_ERROR_KEY = AuthConfigManager.config.outputReconstructionError
+
+        // Constants used for internal logic
+        private const val DUMMY_INPUT_KEY = "x"
     }
 
+    private val lock = ReentrantLock()
     private var interpreter: Interpreter? = null
+
+    // Pre-allocated buffers for Inference to avoid allocation in hot path
+    // These are protected by [lock]
+    private val inferenceInputBuffer: FloatBuffer by lazy { FloatBuffer.allocate(1 * INPUT_DIM) }
+    private val inferenceReconstructionBuffer: FloatBuffer by lazy {
+        FloatBuffer.allocate(INPUT_DIM)
+    }
+    private val inferenceErrorBuffer: FloatBuffer by lazy { FloatBuffer.allocate(1) }
+
+    // Reusable maps for inference inputs/outputs
+    private val inferenceInputs: MutableMap<String, Any> = HashMap()
+    private val inferenceOutputs: MutableMap<String, Any> = HashMap()
 
     init {
         Logger.d("Initializing AuthModel...")
         initializeInterpreter()
+        setupInferenceMaps()
+    }
+
+    private fun setupInferenceMaps() {
+        inferenceInputs[INPUT_KEY] = inferenceInputBuffer
+        inferenceOutputs[OUTPUT_RECONSTRUCTION] = inferenceReconstructionBuffer
+        inferenceOutputs[RECONSTRUCTION_ERROR_KEY] = inferenceErrorBuffer
     }
 
     private fun initializeInterpreter() {
-        try {
-            Logger.d("Attempting to load model file: $MODEL_FILENAME")
-            val modelBuffer = loadModelFile(MODEL_FILENAME)
+        lock.withLock {
+            try {
+                if (interpreter != null) return
 
-            Logger.d("Model loaded into buffer. Size: ${modelBuffer.capacity()} bytes")
+                Logger.d("Attempting to load model file: $MODEL_FILENAME")
+                val modelBuffer = loadModelFile(MODEL_FILENAME)
 
-            val options = Interpreter.Options()
-            // Use CPU for training (Select TF Ops usually require CPU delegate or default)
-            interpreter = Interpreter(modelBuffer, options)
+                Logger.d("Model loaded into buffer. Size: ${modelBuffer.capacity()} bytes")
 
-            Logger.d("Interpreter initialized successfully.")
-        } catch (e: Exception) {
-            Logger.e("Error initializing model: ${e.message}")
-            e.printStackTrace()
+                val options = Interpreter.Options()
+                // Use CPU for training (Select TF Ops usually require CPU delegate or default)
+                interpreter = Interpreter(modelBuffer, options)
+
+                Logger.d("Interpreter initialized successfully.")
+            } catch (e: Exception) {
+                Logger.e("Error initializing model: ${e.message}", e)
+            }
         }
     }
 
@@ -79,321 +109,326 @@ class AuthModel(private val context: Context) {
     // --------------------------------------------------------------------------------
 
     fun runTrainingSession(
-        trainingData: List<List<Float>>, // <-- pass your dataset here
-        epochs: Int = AuthConfigManager.config.trainingEpochs,
-        batchSize: Int = AuthConfigManager.config.trainingBatchSize
+            trainingData: List<List<Float>>,
+            epochs: Int = AuthConfigManager.config.trainingEpochs,
+            batchSize: Int = AuthConfigManager.config.trainingBatchSize
     ) {
-        val interpreter = interpreter ?: run {
-            Logger.e("Training aborted: Interpreter is null.")
-            return
+        lock.withLock {
+            val interpreter =
+                    interpreter
+                            ?: run {
+                                Logger.e("Training aborted: Interpreter is null.")
+                                return
+                            }
+
+            try {
+                val signatureKeys = interpreter.getSignatureKeys()
+                Logger.d("Available Signatures: ${signatureKeys.joinToString(", ")}")
+
+                // 1. Factory Reset (init_model)
+                runInitialization(interpreter, signatureKeys)
+
+                Logger.d(
+                        "Starting Training Session. Epochs: $epochs, BatchSize: $batchSize, Total Samples: ${trainingData.size}"
+                )
+                val startTime = System.currentTimeMillis()
+
+                // 2. Prepare Batches
+                val trainBatches = prepareTrainingBatches(trainingData, batchSize)
+                if (trainBatches.isEmpty()) {
+                    Logger.e("No full batches available for training.")
+                    return
+                }
+
+                Logger.d("Total full batches: ${trainBatches.size}")
+
+                // 3. Training Loop
+                val losses = performTrainingLoop(interpreter, trainBatches, epochs)
+
+                val totalTime = System.currentTimeMillis() - startTime
+                Logger.d(
+                        "Training Complete. Final Loss: ${losses.lastOrNull() ?: 0f}. Total time: ${totalTime}ms"
+                )
+            } catch (e: Exception) {
+                Logger.e("Training failed: ${e.message}", e)
+            }
         }
+    }
 
-        val signatureKeys = interpreter.getSignatureKeys()
-        Logger.d("Available Signatures: ${signatureKeys.joinToString(", ")}")
-
-        // 1. Factory Reset (init_model)
+    private fun runInitialization(interpreter: Interpreter, signatureKeys: Array<String>) {
         if (signatureKeys.contains(SIG_INIT)) {
             Logger.d("Running initialization signature: $SIG_INIT")
             try {
                 val x = floatArrayOf(1.0f) // Dummy input
-                val inputs: MutableMap<String, Any> = hashMapOf("x" to x)
-                val outputs: MutableMap<String, Any> = hashMapOf(OUTPUT_STATUS to FloatBuffer.allocate(1))
+                val inputs: MutableMap<String, Any> = hashMapOf(DUMMY_INPUT_KEY to x)
+                val outputs: MutableMap<String, Any> =
+                        hashMapOf(OUTPUT_STATUS to FloatBuffer.allocate(1))
 
                 interpreter.runSignature(inputs, outputs, SIG_INIT)
                 Logger.d("Initialization successful.")
             } catch (e: Exception) {
                 Logger.e("Failed to run initialization: ${e.message}")
-                e.printStackTrace()
+                throw e
             }
         } else {
             Logger.e("WARNING: No '$SIG_INIT' signature found. Variables might not be initialized!")
         }
+    }
 
-        Logger.d("Starting Training Session. Epochs: $epochs, BatchSize: $batchSize, Total Samples: ${trainingData.size}")
-        val startTime = System.currentTimeMillis()
-
-        // 2. Prepare Batches from trainingData (discard incomplete batches)
+    private fun prepareTrainingBatches(
+            trainingData: List<List<Float>>,
+            batchSize: Int
+    ): List<FloatBuffer> {
         val trainBatches = ArrayList<FloatBuffer>()
-        try {
-            val numFullBatches = trainingData.size / batchSize // only full batches
-            for (i in 0 until numFullBatches) {
-                val startIdx = i * batchSize
-                val endIdx = startIdx + batchSize
-                val batch = trainingData.subList(startIdx, endIdx)
+        val numFullBatches = trainingData.size / batchSize
 
-                val buffer = FloatBuffer.allocate(batch.size * INPUT_DIM)
-                for (sample in batch) {
-                    require(sample.size == INPUT_DIM) { "Each sample must have size $INPUT_DIM" }
-                    buffer.put(sample.toFloatArray())
+        for (i in 0 until numFullBatches) {
+            val startIdx = i * batchSize
+            val endIdx = startIdx + batchSize
+            val batch = trainingData.subList(startIdx, endIdx)
+
+            val buffer = FloatBuffer.allocate(batch.size * INPUT_DIM)
+            for (sample in batch) {
+                // Safe check handled by Kotlin list access, but dimension check is good
+                if (sample.size != INPUT_DIM) {
+                    throw IllegalArgumentException(
+                            "Sample at index matches batch but has wrong dim: ${sample.size} vs $INPUT_DIM"
+                    )
                 }
-                buffer.rewind()
-                trainBatches.add(buffer)
+                buffer.put(sample.toFloatArray())
             }
-        } catch (e: Exception) {
-            Logger.e("Error during batch preparation: ${e.message}")
-            return
+            buffer.rewind()
+            trainBatches.add(buffer)
         }
+        return trainBatches
+    }
 
-        Logger.d("Total full batches: ${trainBatches.size}")
-
-        // 3. Training Loop
+    private fun performTrainingLoop(
+            interpreter: Interpreter,
+            trainBatches: List<FloatBuffer>,
+            epochs: Int
+    ): FloatArray {
         val losses = FloatArray(epochs)
         val lossOutputBuffer = FloatBuffer.allocate(1)
         val inputs: MutableMap<String, Any> = HashMap()
         val outputs: MutableMap<String, Any> = HashMap()
 
-        try {
-            for (epoch in 0 until epochs) {
-                for (batchIdx in trainBatches.indices) {
-                    val inputBatch = trainBatches[batchIdx]
-                    inputBatch.rewind()
-                    lossOutputBuffer.rewind()
+        // Reuse map objects as much as possible, though putting new buffers is necessary
+        outputs[OUTPUT_LOSS] = lossOutputBuffer
 
-                    inputs[INPUT_KEY] = inputBatch
-                    outputs[OUTPUT_LOSS] = lossOutputBuffer
+        for (epoch in 0 until epochs) {
+            for (batchIdx in trainBatches.indices) {
+                val inputBatch = trainBatches[batchIdx]
+                inputBatch.rewind()
+                lossOutputBuffer.rewind()
 
-                    interpreter.runSignature(inputs, outputs, SIG_TRAIN)
+                inputs[INPUT_KEY] = inputBatch
 
-                    if (batchIdx == trainBatches.lastIndex) {
-                        losses[epoch] = lossOutputBuffer.get(0)
-                    }
+                interpreter.runSignature(inputs, outputs, SIG_TRAIN)
+
+                if (batchIdx == trainBatches.lastIndex) {
+                    losses[epoch] = lossOutputBuffer.get(0)
                 }
+            }
+            // Log every epoch might be too verbose if epochs is large, consider interval
+            if ((epoch + 1) % 5 == 0 || epoch == 0 || epoch == epochs - 1) {
                 Logger.d("Epoch ${epoch + 1}/$epochs. Loss: ${losses[epoch]}")
             }
-
-            val totalTime = System.currentTimeMillis() - startTime
-            Logger.d("Training Complete. Final Loss: ${losses.last()}. Total time: ${totalTime}ms")
-
-        } catch (e: Exception) {
-            Logger.e("Training failed: ${e.message}")
-            e.printStackTrace()
         }
+        return losses
     }
 
     // --------------------------------------------------------------------------------
     // Save & Restore (Checkpointing)
     // --------------------------------------------------------------------------------
 
-    /**
-     * Extracts weights from the model and saves them to a file.
-     */
     fun saveCheckpoint(checkpointFile: File): Boolean {
-        val interpreter = interpreter ?: return false
-        Logger.d("Saving checkpoint to: ${checkpointFile.absolutePath}")
+        lock.withLock {
+            val interpreter = interpreter ?: return false
+            Logger.d("Saving checkpoint to: ${checkpointFile.absolutePath}")
 
-        try {
-            // 1. Prepare Outputs map for "save" signature
-            // The signature returns a dictionary where keys are "val_0", "val_1", etc.
-            // We need to inspect the signature outputs to allocate the correct buffer sizes.
-            val signatureOutputs = interpreter.getSignatureOutputs(SIG_SAVE)
-            val outputs: MutableMap<String, Any> = HashMap()
+            try {
+                // 1. Prepare Outputs map for "save" signature
+                val signatureOutputs = interpreter.getSignatureOutputs(SIG_SAVE)
+                val outputs: MutableMap<String, Any> = HashMap()
+                val weightsMap = HashMap<String, FloatArray>()
 
-            // Map to hold the resulting float arrays for serialization
-            val weightsMap = HashMap<String, FloatArray>()
-
-            for (outputName in signatureOutputs) {
-                // Get the tensor details to find shape
-                val tensor = interpreter.getOutputTensorFromSignature(outputName, SIG_SAVE)
-                val shape = tensor.shape() // e.g. [12, 20]
-
-                // Calculate total elements
-                var totalElements = 1
-                for (dim in shape) {
-                    totalElements *= dim
+                for (outputName in signatureOutputs) {
+                    val tensor = interpreter.getOutputTensorFromSignature(outputName, SIG_SAVE)
+                    val totalElements = tensor.shape().fold(1) { acc, dim -> acc * dim }
+                    outputs[outputName] = FloatBuffer.allocate(totalElements)
                 }
 
-                // Allocate buffer
-                val buffer = FloatBuffer.allocate(totalElements)
-                outputs[outputName] = buffer
-            }
+                // 2. Run the SAVE signature
+                val inputs: MutableMap<String, Any> =
+                        hashMapOf(DUMMY_INPUT_KEY to floatArrayOf(1.0f))
+                interpreter.runSignature(inputs, outputs, SIG_SAVE)
 
-            // 2. Run the SAVE signature
-            // FIX: Pass the required dummy input 'x' to prevent TFLite runtime crash.
-            val inputs: MutableMap<String, Any> = HashMap()
-            inputs["x"] = floatArrayOf(1.0f)
-
-            interpreter.runSignature(inputs, outputs, SIG_SAVE)
-
-            // 3. Extract data from Buffers into Arrays for serialization
-            for ((key, value) in outputs) {
-                val buffer = value as FloatBuffer
-                buffer.rewind()
-                val floatArray = FloatArray(buffer.capacity())
-                buffer.get(floatArray)
-                weightsMap[key] = floatArray
-            }
-
-            // 4. Write to disk using ObjectOutputStream
-            FileOutputStream(checkpointFile).use { fos ->
-                ObjectOutputStream(fos).use { oos ->
-                    oos.writeObject(weightsMap)
+                // 3. Extract data
+                for ((key, value) in outputs) {
+                    val buffer = value as FloatBuffer
+                    buffer.rewind()
+                    val floatArray = FloatArray(buffer.capacity())
+                    buffer.get(floatArray)
+                    weightsMap[key] = floatArray
                 }
+
+                // 4. Write to disk
+                FileOutputStream(checkpointFile).use { fos ->
+                    ObjectOutputStream(fos).use { oos -> oos.writeObject(weightsMap) }
+                }
+
+                Logger.d("Checkpoint saved successfully. Saved ${weightsMap.size} tensors.")
+                return true
+            } catch (e: Exception) {
+                Logger.e("Failed to save checkpoint: ${e.message}", e)
+                return false
             }
-
-            Logger.d("Checkpoint saved successfully. Saved ${weightsMap.size} tensors.")
-            return true
-
-        } catch (e: Exception) {
-            Logger.e("Failed to save checkpoint: ${e.message}")
-            e.printStackTrace()
-            return false
         }
     }
 
-    /**
-     * Loads weights from a file and injects them into the model.
-     */
     fun loadCheckpoint(checkpointFile: File): Boolean {
-        val interpreter = interpreter ?: return false
-        Logger.d("Loading checkpoint from: ${checkpointFile.absolutePath}")
+        lock.withLock {
+            val interpreter = interpreter ?: return false
+            Logger.d("Loading checkpoint from: ${checkpointFile.absolutePath}")
 
-        if (!checkpointFile.exists()) {
-            Logger.e("Checkpoint file does not exist.")
-            return false
-        }
-
-        try {
-            // 1. Read Map from disk
-            var loadedWeights: HashMap<String, FloatArray>? = null
-            FileInputStream(checkpointFile).use { fis ->
-                ObjectInputStream(fis).use { ois ->
-                    @Suppress("UNCHECKED_CAST")
-                    loadedWeights = ois.readObject() as? HashMap<String, FloatArray>
-                }
-            }
-
-            if (loadedWeights == null) {
-                Logger.e("Failed to deserialize weights.")
+            if (!checkpointFile.exists()) {
+                Logger.e("Checkpoint file does not exist.")
                 return false
             }
 
-            // 2. Prepare Inputs for "restore" signature
-            val inputs: MutableMap<String, Any> = HashMap()
+            try {
+                // 1. Read Map from disk
+                val loadedWeights: HashMap<String, FloatArray>? =
+                        FileInputStream(checkpointFile).use { fis ->
+                            ObjectInputStream(fis).use { ois ->
+                                @Suppress("UNCHECKED_CAST")
+                                ois.readObject() as? HashMap<String, FloatArray>
+                            }
+                        }
 
-            for ((key, array) in loadedWeights!!) {
-                // Convert FloatArray back to FloatBuffer for TFLite
-                val buffer = FloatBuffer.wrap(array)
-                inputs[key] = buffer
+                if (loadedWeights == null) {
+                    Logger.e("Failed to deserialize weights.")
+                    return false
+                }
+
+                // 2. Prepare Inputs for "restore" signature
+                val inputs: MutableMap<String, Any> = HashMap()
+                for ((key, array) in loadedWeights) {
+                    inputs[key] = FloatBuffer.wrap(array)
+                }
+
+                // 3. Prepare Output (Status)
+                val statusBuffer = FloatBuffer.allocate(1)
+                val outputs: MutableMap<String, Any> = hashMapOf(OUTPUT_STATUS to statusBuffer)
+
+                // 4. Run RESTORE signature
+                interpreter.runSignature(inputs, outputs, SIG_RESTORE)
+
+                Logger.d("Checkpoint loaded successfully. Status: ${statusBuffer.get(0)}")
+                return true
+            } catch (e: Exception) {
+                Logger.e("Failed to load checkpoint: ${e.message}", e)
+                return false
             }
-
-            // 3. Prepare Output (Status)
-            val outputs: MutableMap<String, Any> = HashMap()
-            val statusBuffer = FloatBuffer.allocate(1)
-            outputs[OUTPUT_STATUS] = statusBuffer
-
-            // 4. Run RESTORE signature
-            interpreter.runSignature(inputs, outputs, SIG_RESTORE)
-
-            Logger.d("Checkpoint loaded successfully. Status: ${statusBuffer.get(0)}")
-            return true
-
-        } catch (e: Exception) {
-            Logger.e("Failed to load checkpoint: ${e.message}")
-            e.printStackTrace()
-            return false
         }
     }
 
     // --------------------------------------------------------------------------------
     // Inference
     // --------------------------------------------------------------------------------
+
     /**
      * Perform inference on a single feature vector and return a score.
      * @param featureVector The input feature vector of size INPUT_DIM
      * @return The reconstruction/error score, or null if inference failed
      */
     fun inferScore(featureVector: List<Float>): Float? {
-        val interpreter = interpreter ?: run {
-            Logger.e("Interpreter is null. Cannot perform inference.")
-            return null
-        }
-
+        // Lightweight check before lock
         if (featureVector.size != INPUT_DIM) {
-            Logger.e("Feature vector size ${featureVector.size} does not match expected INPUT_DIM $INPUT_DIM")
+            Logger.e(
+                    "Feature vector size ${featureVector.size} does not match expected INPUT_DIM $INPUT_DIM"
+            )
             return null
         }
 
-        return try {
-            // --------------------------
-            // Prepare input buffer (batch size 1)
-            // --------------------------
-            val inputBuffer = FloatBuffer.allocate(1 * INPUT_DIM)
-            inputBuffer.put(featureVector.toFloatArray())
-            inputBuffer.rewind()
+        lock.withLock {
+            val interpreter =
+                    interpreter
+                            ?: run {
+                                Logger.e("Interpreter is null. Cannot perform inference.")
+                                return null
+                            }
 
-            // --------------------------
-            // Prepare output buffers
-            // reconstruction_error is a scalar per sample (shape [1])
-            // --------------------------
-            val reconstructionErrorBuffer = FloatBuffer.allocate(1)
-            val reconstructionBuffer = FloatBuffer.allocate(INPUT_DIM) // optional if you need reconstructed vector
+            return try {
+                // --------------------------
+                // reuse pre-allocated buffers
+                // --------------------------
+                inferenceInputBuffer.clear()
+                // Manual put loop or toFloatArray needed. toFloatArray creates garbage,
+                // but List doesn't have a bulk put to Buffer.
+                // Optimally we'd iterate and put, but toFloatArray is typical in Android.
+                // To avoid alloc, we could loop:
+                for (f in featureVector) {
+                    inferenceInputBuffer.put(f)
+                }
+                inferenceInputBuffer.rewind()
 
-            val inputs: MutableMap<String, Any> = hashMapOf(INPUT_KEY to inputBuffer)
-            val outputs: MutableMap<String, Any> = hashMapOf(
-                OUTPUT_RECONSTRUCTION to reconstructionBuffer,
-                RECONSTRUCTION_ERROR_KEY to reconstructionErrorBuffer // Use the same key as your Python signature
-            )
+                inferenceReconstructionBuffer.clear()
+                inferenceErrorBuffer.clear()
 
-            // --------------------------
-            // Run inference
-            // --------------------------
-            interpreter.runSignature(inputs, outputs, SIG_INFER)
+                // inputs/outputs maps are already set up in init() pointing to these buffers
 
-            // --------------------------
-            // Get reconstruction error
-            // --------------------------
-            reconstructionErrorBuffer.rewind()
-            reconstructionErrorBuffer.get(0) // return scalar error
+                // --------------------------
+                // Run inference
+                // --------------------------
+                interpreter.runSignature(inferenceInputs, inferenceOutputs, SIG_INFER)
 
-        } catch (e: Exception) {
-            Logger.e("Inference failed: ${e.message}", e)
-            null
+                // --------------------------
+                // Get reconstruction error
+                // --------------------------
+                inferenceErrorBuffer.rewind()
+                inferenceErrorBuffer.get(0) // return scalar error
+            } catch (e: Exception) {
+                Logger.e("Inference failed: ${e.message}", e)
+                null
+            }
         }
     }
 
+    // --------------------------------------------------------------------------------
+    // Utils & Cleanup
+    // --------------------------------------------------------------------------------
 
-    /**
-     * Deletes the checkpoint file from storage.
-     */
     fun deleteCheckpoint(checkpointFile: File): Boolean {
         Logger.d("Attempting to delete checkpoint: ${checkpointFile.absolutePath}")
-
         return try {
             if (!checkpointFile.exists()) {
                 Logger.e("Delete failed: Checkpoint does not exist.")
                 false
             } else {
                 val deleted = checkpointFile.delete()
-                if (deleted) {
-                    Logger.d("Checkpoint deleted successfully.")
-                } else {
-                    Logger.e("Failed to delete checkpoint file.")
-                }
+                if (deleted) Logger.d("Checkpoint deleted successfully.")
+                else Logger.e("Failed to delete checkpoint file.")
                 deleted
             }
         } catch (e: Exception) {
-            Logger.e("Error deleting checkpoint: ${e.message}")
-            e.printStackTrace()
+            Logger.e("Error deleting checkpoint: ${e.message}", e)
             false
         }
     }
 
-    /**
-     * Checks if the checkpoint file exists on disk.
-     */
     fun isCheckpointExists(checkpointFile: File): Boolean {
-        val exists = checkpointFile.exists()
-        if (exists) {
-            Logger.d("Checkpoint exists: ${checkpointFile.absolutePath}")
-        } else {
-            Logger.d("Checkpoint does NOT exist: ${checkpointFile.absolutePath}")
+        return checkpointFile.exists().also { exists ->
+            Logger.d("Checkpoint exists (${checkpointFile.absolutePath}): $exists")
         }
-        return exists
     }
 
-    fun close() {
-        Logger.d("Closing interpreter resources.")
-        interpreter?.close()
-        interpreter = null
+    override fun close() {
+        lock.withLock {
+            Logger.d("Closing interpreter resources.")
+            interpreter?.close()
+            interpreter = null
+        }
     }
 }

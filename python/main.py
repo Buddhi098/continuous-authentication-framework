@@ -19,7 +19,7 @@ def main():
     print("Initializing Variational Sensor Autoencoder...")
     model = VariationalSensorAutoencoder()
     
-    # Convert to TFLite
+    # Convert to LiteRT model
     converter = TFLiteConverter()
     tflite_path = converter.convert(
         model=model,
@@ -28,7 +28,7 @@ def main():
     )
     
     print("=" * 60)
-    print(f"SUCCESS: TFLite model saved at: {tflite_path}")
+    print(f"SUCCESS: LiteRT model saved at: {tflite_path}")
 
 
 if __name__ == "__main__":
