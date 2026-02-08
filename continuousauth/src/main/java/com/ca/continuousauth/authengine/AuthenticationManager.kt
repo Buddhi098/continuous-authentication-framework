@@ -2,6 +2,7 @@ package com.ca.continuousauth.authengine
 
 import android.content.Context
 import com.ca.continuousauth.authmodel.AuthModel
+import com.ca.continuousauth.config.AuthConfigManager
 import com.ca.continuousauth.states.AuthVectorResult
 import com.ca.continuousauth.utils.Logger
 import java.io.*
@@ -11,13 +12,13 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 class AuthenticationManager(
-        private val context: Context,
-        private val authModel: AuthModel,
-        private val checkpointFile: File,
-        private val thresholdFile: File,
-        private val storedVectorsFile: File,
-        private val maxStoredVectors: Int = 100,
-        private val coroutineScope: CoroutineScope =
+    private val context: Context,
+    private val authModel: AuthModel,
+    private val checkpointFile: File,
+    private val thresholdFile: File,
+    private val storedVectorsFile: File,
+    private val maxStoredVectors: Int = AuthConfigManager.config.maxStoredAuthenticatedVectors,
+    private val coroutineScope: CoroutineScope =
                 CoroutineScope(Dispatchers.Default + SupervisorJob())
 ) {
 

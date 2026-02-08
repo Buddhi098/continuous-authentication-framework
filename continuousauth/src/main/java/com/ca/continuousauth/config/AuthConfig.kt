@@ -44,7 +44,8 @@ private constructor(
         /* ------------------------------------------------------------------
          * 3. System Settings
          * ------------------------------------------------------------------ */
-        val enableLogging: Boolean
+        val enableLogging: Boolean,
+        val maxStoredAuthenticatedVectors: Int
 ) {
 
     init {
@@ -61,6 +62,7 @@ private constructor(
         require(enrollmentDataFilterRatio in 0.0..0.3) {
             "enrollmentDataFilterRatio must be between 0.0 and 0.3"
         }
+        require(maxStoredAuthenticatedVectors > 0) { "maxStoredAuthenticatedVectors must be > 0" }
     }
 
     class Builder {
@@ -71,6 +73,7 @@ private constructor(
         private var windowSize: Int = 100
         private var windowOverlapRatio: Double = 0.5
         private var shouldLogFeatureVector: Boolean = false
+        private var maxStoredAuthenticatedVectors: Int = 200
 
         /* -------------------- Model Training --------------------- */
         private var modelFileName: String = "model.tflite"
@@ -137,6 +140,10 @@ private constructor(
 
         fun enableLogging(value: Boolean) = apply { enableLogging = value }
 
+        fun maxStoredAuthenticatedVectors(value: Int) = apply {
+            maxStoredAuthenticatedVectors = value
+        }
+
         fun build(): AuthConfig =
                 AuthConfig(
                         sampleCollectionFrequencyHz = sampleCollectionFrequencyHz,
@@ -160,7 +167,8 @@ private constructor(
                         outputLoss = outputLoss,
                         outputStatus = outputStatus,
                         outputReconstructionError = outputReconstructionError,
-                        enableLogging = enableLogging
+                        enableLogging = enableLogging,
+                        maxStoredAuthenticatedVectors = maxStoredAuthenticatedVectors
                 )
     }
 
