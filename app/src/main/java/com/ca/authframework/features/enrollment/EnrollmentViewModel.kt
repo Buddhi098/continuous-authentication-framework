@@ -32,6 +32,9 @@ class EnrollmentViewModel(private val context: Context, private val auth: Contin
     private val _threshold = MutableStateFlow(0f)
     val threshold: StateFlow<Float> = _threshold.asStateFlow()
 
+    private val _trainedSampleCount = MutableStateFlow<Int?>(null)
+    val trainedSampleCount: StateFlow<Int?> = _trainedSampleCount.asStateFlow()
+
     private var enrollmentTriggered = false
     private var progressJob: Job? = null
 
@@ -41,6 +44,11 @@ class EnrollmentViewModel(private val context: Context, private val auth: Contin
             Log.d(TAG, "Loaded threshold: ${_threshold.value}")
 
             if (_threshold.value > 0f) {
+                // Load metadata if model exists
+                val count = auth.getTrainedSampleCount()
+                if (count != null) {
+                    _trainedSampleCount.value = count
+                }
                 onEnrollmentCompleted()
             }
 
@@ -96,7 +104,9 @@ class EnrollmentViewModel(private val context: Context, private val auth: Contin
             auth.clearCollection()
             auth.clearEnrollmentFiles()
             _statusMessage.value = ""
+            _statusMessage.value = ""
             _threshold.value = 0f // Reset threshold to indicate no model
+            _trainedSampleCount.value = null
             enrollmentTriggered = false
             progressJob?.cancel()
         } catch (e: Exception) {
@@ -121,8 +131,10 @@ class EnrollmentViewModel(private val context: Context, private val auth: Contin
     fun clearEnrollmentFiles() {
         try {
             Log.d(TAG, "Clearing enrollment files")
+            Log.d(TAG, "Clearing enrollment files")
             auth.clearEnrollmentFiles()
             _threshold.value = 0f // Reset threshold to indicate no model
+            _trainedSampleCount.value = null
         } catch (e: Exception) {
             Log.e(TAG, "Failed to clear enrollment files", e)
             _statusMessage.value = "Failed to clear enrollment files"
@@ -182,6 +194,7 @@ class EnrollmentViewModel(private val context: Context, private val auth: Contin
                         if (newThreshold != null) {
                             Log.d(TAG, "Enrollment succeeded. Threshold=$newThreshold")
                             _threshold.value = newThreshold
+                            _trainedSampleCount.value = result.trainedSampleCount
                             onEnrollmentCompleted()
                         } else {
                             Log.e(TAG, "Enrollment success but threshold is null")

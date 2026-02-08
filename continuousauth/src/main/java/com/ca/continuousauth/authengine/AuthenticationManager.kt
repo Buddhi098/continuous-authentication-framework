@@ -2,38 +2,49 @@ package com.ca.continuousauth.authengine
 
 import android.content.Context
 import com.ca.continuousauth.authmodel.AuthModel
-import com.ca.continuousauth.featuremodalities.dataprocessing.scalers.Scaler
 import com.ca.continuousauth.states.AuthVectorResult
 import com.ca.continuousauth.utils.Logger
-import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.Flow
 import java.io.*
+import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+
 class AuthenticationManager(
-    private val context: Context,
-    private val authModel: AuthModel,
-    private val checkpointFile: File,
-    private val thresholdFile: File,
-    private val storedVectorsFile: File,
-    private val maxStoredVectors: Int = 100,
+        private val context: Context,
+        private val authModel: AuthModel,
+        private val checkpointFile: File,
+        private val thresholdFile: File,
+        private val storedVectorsFile: File,
+        private val maxStoredVectors: Int = 100,
+        private val coroutineScope: CoroutineScope =
+                CoroutineScope(Dispatchers.Default + SupervisorJob())
 ) {
 
     private val authenticatedVectors = mutableListOf<List<Float>>()
+    // Mutex to protect authenticatedVectors access during async operations
+    private val vectorLock = Mutex()
 
     private var cachedThreshold: Float? = null
-    private var isModelLoaded: Boolean = false
+    // Volatile for lightweight thread visibility, though mostly accessed via main flow
+    @Volatile private var isModelLoaded: Boolean = false
 
-    // Counters for percentage calculation
-    private var totalAuthentications: Int = 0
-    private var successfulAuthentications: Int = 0
-
-    private val adaptiveScoreDenoiser: AdaptiveScoreDenoiser = AdaptiveScoreDenoiser()
+    // Atomic counters for thread-safe updates without lock if needed,
+    // though we often update them in the auth flow.
+    private var totalAuthentications = AtomicInteger(0)
+    private var successfulAuthentications = AtomicInteger(0)
 
     init {
         Logger.d("AuthenticationManager initializing")
-        loadStoredVectors()
+
+        // Load potentially slow resources asynchronously or blocking if critical for startup?
+        // Usually, blocking init in constructor is bad, but for this manager
+        // it might be expected to be ready.
+        // Let's keep it synchronous but safe, or move to a `initialize()` suspend function.
+        // For strict refactoring of existing logic, keeping it blocking but safe.
+        runBlocking { loadStoredVectors() }
         loadModel()
         loadThresholdOnce()
-        adaptiveScoreDenoiser.reset()
         Logger.d("AuthenticationManager initialization completed")
     }
 
@@ -42,82 +53,103 @@ class AuthenticationManager(
     // --------------------------------------------------
     fun authenticateFeatureVector(featureVector: List<Float>): AuthVectorResult {
 
-        Logger.d("Authenticating feature vector")
-
         if (!isModelLoaded) {
             Logger.e("Authentication failed: model not loaded")
-            throw IllegalStateException("Authentication model not loaded")
+            // Return failed result instead of crashing
+            return AuthVectorResult(
+                    isAuthenticated = false,
+                    score = 0f,
+                    threshold = 0f,
+                    authPercentage = null,
+                    totalAuthentications = totalAuthentications.get()
+            )
         }
 
-        val threshold = cachedThreshold
-        if (threshold == null) {
-            Logger.e("Authentication failed: threshold not available")
-            throw IllegalStateException("Threshold not available")
-        }
+        val threshold =
+                cachedThreshold
+                        ?: run {
+                            Logger.e("Authentication failed: threshold not available")
+                            return AuthVectorResult(
+                                    isAuthenticated = false,
+                                    score = 0f,
+                                    threshold = 0f,
+                                    authPercentage = null,
+                                    totalAuthentications = totalAuthentications.get()
+                            )
+                        }
 
-        val startTime = System.nanoTime()   // start timer
+        // Timer
+        val startTime = System.nanoTime()
 
-        val score = authModel.inferScore(featureVector)
-//        val score = adaptiveScoreDenoiser.denoise(noiceScore!!)
-        val endTime = System.nanoTime()     // end timer
-        val durationMs = (endTime - startTime) / 1_000_000.0  // convert to milliseconds
+        val rawScore = authModel.inferScore(featureVector)
+
+        // Optional: Denoise if needed. Uncomment if logic is restored.
+        // val score = rawScore?.let { adaptiveScoreDenoiser.denoise(it) }
+        val score = rawScore
+
+        val durationMs = (System.nanoTime() - startTime) / 1_000_000.0
 
         if (score == null) {
             Logger.e("Authentication failed: inference returned null")
-            throw IllegalStateException("Inference failed")
+            return AuthVectorResult(
+                    isAuthenticated = false,
+                    score = 0f,
+                    threshold = threshold,
+                    authPercentage = null,
+                    totalAuthentications = totalAuthentications.get()
+            )
         }
 
         val isAuthenticated = score <= threshold
 
         // Update counters
-        totalAuthentications++
+        val total = totalAuthentications.incrementAndGet()
+        val successful =
+                if (isAuthenticated) {
+                    successfulAuthentications.incrementAndGet()
+                } else {
+                    successfulAuthentications.get()
+                }
+
         if (isAuthenticated) {
-            successfulAuthentications++
-            storeAuthenticatedVector(featureVector)
+            // FIRE AND FORGET: Store vector asynchronously to avoid blocking auth stream
+            coroutineScope.launch { storeAuthenticatedVector(featureVector) }
         }
 
-        val authPercentage =
-            if (totalAuthentications > 0)
-                (successfulAuthentications.toFloat() / totalAuthentications) * 100f
-            else
-                null
+        val authPercentage = if (total > 0) (successful.toFloat() / total) * 100f else null
 
         Logger.d(
-            "Authentication result -> " +
-                    "score=$score, threshold=$threshold, authenticated=$isAuthenticated, " +
-                    "authPercentage=$authPercentage, infer execution time=${"%.3f".format(durationMs)}ms"
+                "Authentication result -> " +
+                        "score=$score, threshold=$threshold, authenticated=$isAuthenticated, " +
+                        "authPercentage=$authPercentage, infer execution time=${"%.3f".format(durationMs)}ms"
         )
 
         return AuthVectorResult(
-            isAuthenticated = isAuthenticated,
-            score = score,
-            threshold = threshold,
-            authPercentage = authPercentage,
-            totalAuthentications = totalAuthentications
+                isAuthenticated = isAuthenticated,
+                score = score,
+                threshold = threshold,
+                authPercentage = authPercentage,
+                totalAuthentications = total
         )
     }
-    fun stopAuthentication(resetCounters: Boolean = true) {
 
+    fun stopAuthentication(resetCounters: Boolean = true) {
         Logger.d("Stopping authentication session")
 
-        // Reset adaptive score smoothing (VERY IMPORTANT)
-        adaptiveScoreDenoiser.reset()
-        Logger.d("AdaptiveScoreDenoiser reset")
-
-        // Reset counters if requested
         if (resetCounters) {
-            totalAuthentications = 0
-            successfulAuthentications = 0
+            totalAuthentications.set(0)
+            successfulAuthentications.set(0)
             Logger.d("Authentication counters reset")
         }
 
         Logger.d("Authentication stopped successfully")
     }
+
     // --------------------------------------------------
     // Initialization helpers
     // --------------------------------------------------
     fun loadModel() {
-        if(isModelLoaded) return
+        if (isModelLoaded) return
         Logger.d("Loading authentication model checkpoint")
         if (!checkpointFile.exists()) {
             Logger.e("Checkpoint file not found at ${checkpointFile.absolutePath}")
@@ -133,124 +165,117 @@ class AuthenticationManager(
     }
 
     fun loadThresholdOnce() {
-        if(cachedThreshold!=null) return
+        if (cachedThreshold != null) return
         Logger.d("Loading threshold value")
 
-        cachedThreshold = try {
-            if (!thresholdFile.exists()) {
-                Logger.e("Threshold file not found at ${thresholdFile.absolutePath}")
-                null
-            } else {
-                DataInputStream(FileInputStream(thresholdFile)).use {
-                    it.readFloat()
-                }.also {
-                    Logger.d("Threshold loaded successfully: $it")
+        cachedThreshold =
+                try {
+                    if (!thresholdFile.exists()) {
+                        Logger.e("Threshold file not found at ${thresholdFile.absolutePath}")
+                        null
+                    } else {
+                        DataInputStream(FileInputStream(thresholdFile))
+                                .use { it.readFloat() }
+                                .also { Logger.d("Threshold loaded successfully: $it") }
+                    }
+                } catch (e: Exception) {
+                    Logger.e("Error loading threshold: ${e.message}", e)
+                    null
                 }
-            }
-        } catch (e: Exception) {
-            Logger.e("Error loading threshold: ${e.message}", e)
-            null
-        }
     }
 
     // --------------------------------------------------
-    // Authenticated vector storage
+    // Authenticated vector storage (Async)
     // --------------------------------------------------
-    private fun storeAuthenticatedVector(vector: List<Float>) {
-        try {
-            authenticatedVectors.add(vector)
+    private suspend fun storeAuthenticatedVector(vector: List<Float>) {
+        vectorLock.withLock {
+            try {
+                authenticatedVectors.add(vector)
 
-            if (authenticatedVectors.size > maxStoredVectors) {
-                val removed = authenticatedVectors.size - maxStoredVectors
-                repeat(removed) { authenticatedVectors.removeAt(0) }
-                Logger.d("Trimmed authenticated vectors, removed=$removed")
+                if (authenticatedVectors.size > maxStoredVectors) {
+                    val removed = authenticatedVectors.size - maxStoredVectors
+                    repeat(removed) { authenticatedVectors.removeAt(0) }
+                    Logger.d("Trimmed authenticated vectors, removed=$removed")
+                }
+
+                // Save to disk (on IO dispatcher)
+                withContext(Dispatchers.IO) { saveStoredVectors() }
+            } catch (e: Exception) {
+                Logger.e("Failed to store authenticated vector: ${e.message}", e)
             }
-
-            saveStoredVectors()
-            Logger.d("Authenticated vector stored successfully")
-
-        } catch (e: Exception) {
-            Logger.e("Failed to store authenticated vector: ${e.message}", e)
         }
     }
 
     private fun saveStoredVectors() {
+        // Must be called within IO context/background
         try {
+            // Use atomic write? For now simple stream
             ObjectOutputStream(FileOutputStream(storedVectorsFile)).use {
                 it.writeObject(authenticatedVectors)
             }
-            Logger.d("Authenticated vectors saved to disk")
+            // Logger.d("Authenticated vectors saved to disk") // Verbose logging removed
         } catch (e: Exception) {
             Logger.e("Failed to persist authenticated vectors: ${e.message}", e)
         }
     }
 
-    private fun loadStoredVectors() {
-
-        if (!storedVectorsFile.exists()) {
-            Logger.d("No stored authenticated vectors file found")
-            return
-        }
+    private suspend fun loadStoredVectors() {
+        if (!storedVectorsFile.exists()) return
 
         if (storedVectorsFile.length() == 0L) {
-            Logger.d("Stored vectors file is empty. Deleting file.")
             storedVectorsFile.delete()
             return
         }
 
-        try {
-            ObjectInputStream(FileInputStream(storedVectorsFile)).use { ois ->
+        withContext(Dispatchers.IO) {
+            vectorLock.withLock {
+                try {
+                    ObjectInputStream(FileInputStream(storedVectorsFile)).use { ois ->
+                        @Suppress("UNCHECKED_CAST")
+                        val vectors = ois.readObject() as? List<List<Float>>
 
-                @Suppress("UNCHECKED_CAST")
-                val vectors = ois.readObject() as? List<List<Float>>
-
-                if (vectors.isNullOrEmpty()) {
-                    Logger.d("Stored vectors file contained no valid vectors")
-                    return
+                        if (!vectors.isNullOrEmpty()) {
+                            authenticatedVectors.clear()
+                            authenticatedVectors.addAll(vectors)
+                            Logger.d("Loaded ${vectors.size} authenticated vectors from disk")
+                        }
+                    }
+                } catch (e: EOFException) {
+                    Logger.e("Stored vectors corrupted (EOF). Deleting.", e)
+                    storedVectorsFile.delete()
+                } catch (e: InvalidClassException) {
+                    Logger.e("Stored vectors incompatible. Deleting.", e)
+                    storedVectorsFile.delete()
+                } catch (e: Exception) {
+                    Logger.e("Error loading stored vectors. Deleting.", e)
+                    storedVectorsFile.delete()
                 }
-
-                authenticatedVectors.clear()
-                authenticatedVectors.addAll(vectors)
-
-                Logger.d("Loaded ${vectors.size} authenticated vectors from disk")
             }
-
-        } catch (e: EOFException) {
-            Logger.e("Stored vectors file corrupted or incomplete (EOF). Deleting file.", e)
-            storedVectorsFile.delete()
-
-        } catch (e: InvalidClassException) {
-            Logger.e("Stored vectors incompatible with current app version. Deleting file.", e)
-            storedVectorsFile.delete()
-
-        } catch (e: Exception) {
-            Logger.e("Unexpected error while loading stored vectors. Deleting file.", e)
-            storedVectorsFile.delete()
         }
     }
 
     // --------------------------------------------------
     // Public helpers
     // --------------------------------------------------
-    fun getStoredVectors(): List<List<Float>> {
-        Logger.d("Returning ${authenticatedVectors.size} stored vectors")
-        return authenticatedVectors.toList()
+
+    // Blocking getter for simplicity, or suspend?
+    // Usually UI calls this. We'll make it use a safe copy under lock.
+    fun getStoredVectors(): List<List<Float>> = runBlocking {
+        vectorLock.withLock { authenticatedVectors.toList() }
     }
 
     fun getCachedThreshold(): Float? {
-        Logger.d("Returning cached threshold: $cachedThreshold")
         return cachedThreshold
     }
 
     fun resetAuthenticationCounters() {
         Logger.d("Resetting authentication counters")
-        totalAuthentications = 0
-        successfulAuthentications = 0
+        totalAuthentications.set(0)
+        successfulAuthentications.set(0)
     }
 
     fun getAuthenticationPercentage(): Float? {
-        return if (totalAuthentications > 0)
-            (successfulAuthentications.toFloat() / totalAuthentications) * 100f
-        else null
+        val total = totalAuthentications.get()
+        return if (total > 0) (successfulAuthentications.get().toFloat() / total) * 100f else null
     }
 }

@@ -9,20 +9,15 @@ import java.io.DataOutputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
-import kotlin.math.abs
-import kotlin.math.pow
-import kotlin.math.sqrt
 
 class EnrollmentManager(
-    private val authModel: AuthModel,
-    private val checkpointFile: File,
-    private val thresholdFile: File,
+        private val authModel: AuthModel,
+        private val checkpointFile: File,
+        private val thresholdFile: File,
+        private val metadataFile: File,
 ) {
     private val trainValidationRatio = AuthConfigManager.config.trainValidationRatio
-    private val enrollmentDataFilterRatio = AuthConfigManager.config.enrollmentDataFilterRatio
 
-    // Step 2: Smooth the scores using AdaptiveScoreDenoiser
-    private val denoiser = AdaptiveScoreDenoiser()
     // --------------------------------------------------
     // Enrollment (Train + Threshold + Persist)
     // --------------------------------------------------
@@ -34,8 +29,8 @@ class EnrollmentManager(
      * @param dropRatio Fraction of worst samples to remove (e.g. 0.15 = remove top 15%)
      */
     private fun filterTightLegitSamples(
-        data: List<List<Float>>,
-        dropRatio: Double = 0.1
+            data: List<List<Float>>,
+            dropRatio: Double = 0.1
     ): List<List<Float>> {
 
         if (data.size < 100) {
@@ -45,27 +40,25 @@ class EnrollmentManager(
         }
 
         // Compute reconstruction error for each sample
-        val scored = data.mapNotNull { sample ->
-            authModel.inferScore(sample)?.let { score ->
-                sample to score
-            }
-        }
+        val scored =
+                data.mapNotNull { sample ->
+                    authModel.inferScore(sample)?.let { score -> sample to score }
+                }
 
         if (scored.isEmpty()) return data
 
         // Sort by error (ascending = best legit)
         val sorted = scored.sortedBy { it.second }
 
-        val keepCount = (sorted.size * (1f - dropRatio))
-            .toInt()
-            .coerceAtLeast(10)   // always keep minimum core
+        val keepCount =
+                (sorted.size * (1f - dropRatio))
+                        .toInt()
+                        .coerceAtLeast(10) // always keep minimum core
 
-        val filtered = sorted
-            .take(keepCount)
-            .map { it.first }
+        val filtered = sorted.take(keepCount).map { it.first }
 
         Logger.d(
-            "Legit filtering: original=${data.size}, kept=${filtered.size}, removed=${data.size - filtered.size}"
+                "Legit filtering: original=${data.size}, kept=${filtered.size}, removed=${data.size - filtered.size}"
         )
 
         return filtered
@@ -77,13 +70,13 @@ class EnrollmentManager(
      * @param thresholdFactor Factor to multiply standard deviation for threshold
      */
     fun enroll(
-        dataSet: List<List<Float>>,
+            dataSet: List<List<Float>>,
     ): EnrollmentResult {
         try {
             if (dataSet.size < 10) {
                 return EnrollmentResult(
-                    success = false,
-                    message = "Not enough samples for enrollment"
+                        success = false,
+                        message = "Not enough samples for enrollment"
                 )
             }
 
@@ -91,55 +84,52 @@ class EnrollmentManager(
             val shuffled = dataSet.shuffled()
             Logger.d("Original Enrollment Sample Count ${shuffled.size}")
 
-//            authModel.runTrainingSession(shuffled)
-//            val filteredDataset = filterTightLegitSamples(shuffled, dropRatio = enrollmentDataFilterRatio)
-//            Logger.d("Filtered Enrollment Sample Count ${filteredDataset.size}")
-
             val splitIndex = (shuffled.size * trainValidationRatio).toInt()
             val trainingSet = shuffled.subList(0, splitIndex)
             val validationSet = shuffled.subList(splitIndex, shuffled.size)
 
-            Logger.d("Enrollment started. Train=${trainingSet.size}, Validation=${validationSet.size}")
+            Logger.d(
+                    "Enrollment started. Train=${trainingSet.size}, Validation=${validationSet.size}"
+            )
 
             // 1️⃣ Train model
             authModel.runTrainingSession(trainingSet)
 
             // 2️⃣ Calculate threshold
-            val threshold = calculateThreshold(validationSet)
-                ?: return EnrollmentResult(
-                    success = false,
-                    message = "Threshold calculation failed"
-                )
+            val threshold =
+                    calculateThreshold(validationSet)
+                            ?: return EnrollmentResult(
+                                    success = false,
+                                    message = "Threshold calculation failed"
+                            )
 
             // 3️⃣ Persist model weights
             if (!authModel.saveCheckpoint(checkpointFile)) {
                 return EnrollmentResult(
-                    success = false,
-                    message = "Failed to save model checkpoint"
+                        success = false,
+                        message = "Failed to save model checkpoint"
                 )
             }
 
             // 4️⃣ Persist threshold
             if (!saveThreshold(threshold)) {
-                return EnrollmentResult(
-                    success = false,
-                    message = "Failed to save threshold"
-                )
+                return EnrollmentResult(success = false, message = "Failed to save threshold")
             }
 
-            Logger.d("Enrollment successful. Threshold=$threshold")
+            // 5️⃣ Persist metadata (sample count)
+            val sampleCount = trainingSet.size
+            saveMetadata(sampleCount)
+
+            Logger.d("Enrollment successful. Threshold=$threshold, Samples=$sampleCount")
 
             return EnrollmentResult(
-                success = true,
-                threshold = threshold
+                    success = true,
+                    threshold = threshold,
+                    trainedSampleCount = sampleCount
             )
-
         } catch (e: Exception) {
             Logger.e("Enrollment failed: ${e.message}", e)
-            return EnrollmentResult(
-                success = false,
-                message = "Enrollment exception: ${e.message}"
-            )
+            return EnrollmentResult(success = false, message = "Enrollment exception: ${e.message}")
         }
     }
 
@@ -149,9 +139,9 @@ class EnrollmentManager(
 
     // Optimization: Use FloatArray instead of List<Float> to save boxing overhead
     fun calculateThreshold(
-        validationSet: List<List<Float>>,
-        percentile: Float = 90f,
-        strictness: Float = 0.9f // Standard IQR multiplier (1.5 is standard, 3.0 is loose)
+            validationSet: List<List<Float>>,
+            percentile: Float = 90f,
+            strictness: Float = 0.9f // Standard IQR multiplier (1.5 is standard, 3.0 is loose)
     ): Float? {
         // 1. Gather scores (reuse ArrayList to avoid resizing overhead)
         val scores = ArrayList<Float>(validationSet.size)
@@ -214,76 +204,13 @@ class EnrollmentManager(
         return scores[safeIndex]
     }
 
-//    private fun calculateThreshold(
-//        validationSet: List<List<Float>>,
-//        factor: Float = 6.0f,              // k * std
-//        lowerPercentile: Float = 0.0f,
-//        upperPercentile: Float = 0.95f
-//    ): Float? {
-//        return try {
-//
-//            // --------------------------------------------------
-//            // 1. Infer + denoise all scores
-//            // --------------------------------------------------
-//            val scoreDenoiser = AdaptiveScoreDenoiser()
-//            scoreDenoiser.reset()
-//
-//            val denoisedScores = validationSet.mapNotNull { vector ->
-//                authModel.inferScore(vector)?.let { raw ->
-//                    scoreDenoiser.denoise(raw)
-//                }
-//            }
-//
-//            if (denoisedScores.isEmpty()) return null
-//
-//            // --------------------------------------------------
-//            // 2. Percentile-based outlier removal
-//            // --------------------------------------------------
-//            val sorted = denoisedScores.sorted()
-//            val n = sorted.size
-//
-//            val lowIndex = ((n - 1) * lowerPercentile).toInt().coerceIn(0, n - 1)
-//            val highIndex = ((n - 1) * upperPercentile).toInt().coerceIn(0, n - 1)
-//
-//            val low = sorted[lowIndex]
-//            val high = sorted[highIndex]
-//
-//            val cleanScores = sorted.filter { it in low..high }
-//            if (cleanScores.isEmpty()) return null
-//
-//            // --------------------------------------------------
-//            // 3. Mean + Standard Deviation
-//            // --------------------------------------------------
-//            val mean = cleanScores.average().toFloat()
-//
-//            val variance = cleanScores
-//                .map { (it - mean) * (it - mean) }
-//                .average()
-//                .toFloat()
-//
-//            val std = kotlin.math.sqrt(variance)
-//
-//            // --------------------------------------------------
-//            // 4. Final threshold
-//            // --------------------------------------------------
-//            mean + factor * std
-//
-//        } catch (e: Exception) {
-//            Logger.e("Threshold calculation failed", e)
-//            null
-//        }
-//    }
-
     // --------------------------------------------------
     // Persistent Storage
     // --------------------------------------------------
-
     private fun saveThreshold(threshold: Float): Boolean {
         return try {
             FileOutputStream(thresholdFile).use { fos ->
-                DataOutputStream(fos).use { dos ->
-                    dos.writeFloat(threshold)
-                }
+                DataOutputStream(fos).use { dos -> dos.writeFloat(threshold) }
             }
             true
         } catch (e: Exception) {
@@ -312,6 +239,36 @@ class EnrollmentManager(
             }
         } catch (e: Exception) {
             Logger.e("Failed to load threshold: ${e.message}", e)
+            null
+        }
+    }
+
+    // --------------------------------------------------
+    // Metadata (Sample Count)
+    // --------------------------------------------------
+
+    private fun saveMetadata(sampleCount: Int) {
+        try {
+            val json = org.json.JSONObject()
+            json.put("trained_samples", sampleCount)
+            json.put("timestamp", System.currentTimeMillis())
+            metadataFile.writeText(json.toString())
+        } catch (e: Exception) {
+            Logger.e("Failed to save enrollment metadata", e)
+        }
+    }
+
+    fun loadMetadata(): Int? {
+        return try {
+            if (!metadataFile.exists()) return null
+            val json = org.json.JSONObject(metadataFile.readText())
+            if (json.has("trained_samples")) {
+                json.getInt("trained_samples")
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            Logger.e("Failed to load enrollment metadata", e)
             null
         }
     }

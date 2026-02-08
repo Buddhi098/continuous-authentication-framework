@@ -1,75 +1,60 @@
 package com.ca.continuousauth.config
 
-import android.R
-
 @ConsistentCopyVisibility
-data class AuthConfig private constructor(
+data class AuthConfig
+private constructor(
 
-    /* ------------------------------------------------------------------
-     * 1. Data Collection
-     * ------------------------------------------------------------------ */
-    val sampleCollectionFrequencyHz: Int,
-    val enrollmentSamples: Int,
-    val windowSize: Int,
-    val windowOverlapRatio: Double,
-    val shouldLogFeatureVector: Boolean,
+        /* ------------------------------------------------------------------
+         * 1. Data Collection
+         * ------------------------------------------------------------------ */
+        val sampleCollectionFrequencyHz: Int,
+        val enrollmentSamples: Int,
+        val windowSize: Int,
+        val windowOverlapRatio: Double,
+        val shouldLogFeatureVector: Boolean,
 
-    /* ------------------------------------------------------------------
-     * 2. Model Training
-     * ------------------------------------------------------------------ */
-    val modelFileName: String,
-    val trainingEpochs: Int,
-    val trainingBatchSize: Int,
-    val featureDimension: Int,
+        /* ------------------------------------------------------------------
+         * 2. Model Training
+         * ------------------------------------------------------------------ */
+        val modelFileName: String,
+        val trainingEpochs: Int,
+        val trainingBatchSize: Int,
+        val featureDimension: Int,
 
-    // Train / validation split
-    val trainValidationRatio: Double,
+        // Train / validation split
+        val trainValidationRatio: Double,
 
-    // Enrollment data filtering (ratio of samples to discard)
-    val enrollmentDataFilterRatio: Double,
+        // Enrollment data filtering (ratio of samples to discard)
+        val enrollmentDataFilterRatio: Double,
 
-    // Signals
-    val sigTrain: String,
-    val sigInfer: String,
-    val sigInit: String,
-    val sigSave: String,
-    val sigRestore: String,
+        // Signals
+        val sigTrain: String,
+        val sigInfer: String,
+        val sigInit: String,
+        val sigSave: String,
+        val sigRestore: String,
 
-    // Tensor names
-    val inputKey: String,
-    val outputReconstruction: String,
-    val outputLoss: String,
-    val outputStatus: String,
-    val outputReconstructionError: String,
+        // Tensor names
+        val inputKey: String,
+        val outputReconstruction: String,
+        val outputLoss: String,
+        val outputStatus: String,
+        val outputReconstructionError: String,
 
-    /* ------------------------------------------------------------------
-     * 3. System Settings
-     * ------------------------------------------------------------------ */
-    val enableLogging: Boolean
+        /* ------------------------------------------------------------------
+         * 3. System Settings
+         * ------------------------------------------------------------------ */
+        val enableLogging: Boolean
 ) {
 
     init {
-        require(sampleCollectionFrequencyHz > 0) {
-            "sampleCollectionFrequencyHz must be > 0"
-        }
-        require(enrollmentSamples > 0) {
-            "enrollmentSamples must be > 0"
-        }
-        require(windowSize > 0) {
-            "windowSize must be > 0"
-        }
-        require(windowOverlapRatio in 0.0..0.9) {
-            "windowOverlapRatio must be between 0.0 and 0.9"
-        }
-        require(trainingEpochs > 0) {
-            "trainingEpochs must be > 0"
-        }
-        require(trainingBatchSize > 0) {
-            "trainingBatchSize must be > 0"
-        }
-        require(featureDimension > 0) {
-            "featureDimension must be > 0"
-        }
+        require(sampleCollectionFrequencyHz > 0) { "sampleCollectionFrequencyHz must be > 0" }
+        require(enrollmentSamples > 0) { "enrollmentSamples must be > 0" }
+        require(windowSize > 0) { "windowSize must be > 0" }
+        require(windowOverlapRatio in 0.0..0.9) { "windowOverlapRatio must be between 0.0 and 0.9" }
+        require(trainingEpochs > 0) { "trainingEpochs must be > 0" }
+        require(trainingBatchSize > 0) { "trainingBatchSize must be > 0" }
+        require(featureDimension > 0) { "featureDimension must be > 0" }
         require(trainValidationRatio in 0.5..0.95) {
             "trainValidationRatio must be between 0.5 and 0.95"
         }
@@ -113,38 +98,27 @@ data class AuthConfig private constructor(
         private var enableLogging: Boolean = true
 
         /* ------------------ Builder Setters ---------------------- */
-        fun sampleCollectionFrequencyHz(value: Int) =
-            apply { sampleCollectionFrequencyHz = value }
+        fun sampleCollectionFrequencyHz(value: Int) = apply { sampleCollectionFrequencyHz = value }
 
-        fun enrollmentSamples(value: Int) =
-            apply { enrollmentSamples = value }
+        fun enrollmentSamples(value: Int) = apply { enrollmentSamples = value }
 
-        fun windowSize(value: Int) =
-            apply { windowSize = value }
+        fun windowSize(value: Int) = apply { windowSize = value }
 
-        fun windowOverlapRatio(value: Double) =
-            apply { windowOverlapRatio = value }
+        fun windowOverlapRatio(value: Double) = apply { windowOverlapRatio = value }
 
-        fun shouldLogFeatureVector(value: Boolean) =
-            apply { shouldLogFeatureVector = value }
+        fun shouldLogFeatureVector(value: Boolean) = apply { shouldLogFeatureVector = value }
 
-        fun modelFileName(value: String) =
-            apply { modelFileName = value }
+        fun modelFileName(value: String) = apply { modelFileName = value }
 
-        fun trainingEpochs(value: Int) =
-            apply { trainingEpochs = value }
+        fun trainingEpochs(value: Int) = apply { trainingEpochs = value }
 
-        fun trainingBatchSize(value: Int) =
-            apply { trainingBatchSize = value }
+        fun trainingBatchSize(value: Int) = apply { trainingBatchSize = value }
 
-        fun featureDimension(value: Int) =
-            apply { featureDimension = value }
+        fun featureDimension(value: Int) = apply { featureDimension = value }
 
-        fun trainValidationRatio(value: Double) =
-            apply { trainValidationRatio = value }
+        fun trainValidationRatio(value: Double) = apply { trainValidationRatio = value }
 
-        fun enrollmentDataFilterRatio(value: Double) =
-            apply { enrollmentDataFilterRatio = value }
+        fun enrollmentDataFilterRatio(value: Double) = apply { enrollmentDataFilterRatio = value }
 
         fun sigTrain(value: String) = apply { sigTrain = value }
         fun sigInfer(value: String) = apply { sigInfer = value }
@@ -153,46 +127,41 @@ data class AuthConfig private constructor(
         fun sigRestore(value: String) = apply { sigRestore = value }
 
         fun inputKey(value: String) = apply { inputKey = value }
-        fun outputReconstruction(value: String) =
-            apply { outputReconstruction = value }
+        fun outputReconstruction(value: String) = apply { outputReconstruction = value }
 
-        fun outputLoss(value: String) =
-            apply { outputLoss = value }
+        fun outputLoss(value: String) = apply { outputLoss = value }
 
-        fun outputStatus(value: String) =
-            apply { outputStatus = value }
+        fun outputStatus(value: String) = apply { outputStatus = value }
 
-        fun outputReconstructionError(value: String) =
-            apply { outputReconstructionError = value }
+        fun outputReconstructionError(value: String) = apply { outputReconstructionError = value }
 
-        fun enableLogging(value: Boolean) =
-            apply { enableLogging = value }
+        fun enableLogging(value: Boolean) = apply { enableLogging = value }
 
         fun build(): AuthConfig =
-            AuthConfig(
-                sampleCollectionFrequencyHz = sampleCollectionFrequencyHz,
-                enrollmentSamples = enrollmentSamples,
-                windowSize = windowSize,
-                windowOverlapRatio = windowOverlapRatio,
-                shouldLogFeatureVector = shouldLogFeatureVector,
-                modelFileName = modelFileName,
-                trainingEpochs = trainingEpochs,
-                trainingBatchSize = trainingBatchSize,
-                featureDimension = featureDimension,
-                trainValidationRatio = trainValidationRatio,
-                enrollmentDataFilterRatio = enrollmentDataFilterRatio,
-                sigTrain = sigTrain,
-                sigInfer = sigInfer,
-                sigInit = sigInit,
-                sigSave = sigSave,
-                sigRestore = sigRestore,
-                inputKey = inputKey,
-                outputReconstruction = outputReconstruction,
-                outputLoss = outputLoss,
-                outputStatus = outputStatus,
-                outputReconstructionError = outputReconstructionError,
-                enableLogging = enableLogging
-            )
+                AuthConfig(
+                        sampleCollectionFrequencyHz = sampleCollectionFrequencyHz,
+                        enrollmentSamples = enrollmentSamples,
+                        windowSize = windowSize,
+                        windowOverlapRatio = windowOverlapRatio,
+                        shouldLogFeatureVector = shouldLogFeatureVector,
+                        modelFileName = modelFileName,
+                        trainingEpochs = trainingEpochs,
+                        trainingBatchSize = trainingBatchSize,
+                        featureDimension = featureDimension,
+                        trainValidationRatio = trainValidationRatio,
+                        enrollmentDataFilterRatio = enrollmentDataFilterRatio,
+                        sigTrain = sigTrain,
+                        sigInfer = sigInfer,
+                        sigInit = sigInit,
+                        sigSave = sigSave,
+                        sigRestore = sigRestore,
+                        inputKey = inputKey,
+                        outputReconstruction = outputReconstruction,
+                        outputLoss = outputLoss,
+                        outputStatus = outputStatus,
+                        outputReconstructionError = outputReconstructionError,
+                        enableLogging = enableLogging
+                )
     }
 
     companion object {

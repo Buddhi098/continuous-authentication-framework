@@ -33,6 +33,7 @@ fun EnrollmentScreen(viewModel: EnrollmentViewModel, targetSamples: Int = 100) {
         val statusMessage by viewModel.statusMessage.collectAsState()
         // 🔐 Model State: Any threshold > 0 means a model is trained
         val threshold by viewModel.threshold.collectAsState()
+        val trainedSampleCount by viewModel.trainedSampleCount.collectAsState()
 
         val isCompleted = progress >= 1f
         var showClearDialog by remember { mutableStateOf(false) }
@@ -140,52 +141,76 @@ fun EnrollmentScreen(viewModel: EnrollmentViewModel, targetSamples: Int = 100) {
                                                                                 .onSurfaceVariant
                                                         }
                                         )
-                                }
 
-                                // Circular Progress
-                                Box(
-                                        contentAlignment = Alignment.Center,
-                                        modifier = Modifier.size(160.dp)
-                                ) {
-                                        // Track
-                                        CircularProgressIndicator(
-                                                progress = 1f,
-                                                modifier = Modifier.fillMaxSize(),
-                                                color = MaterialTheme.colorScheme.surfaceVariant,
-                                                strokeWidth = 12.dp,
-                                                strokeCap = StrokeCap.Round
-                                        )
-                                        // Progress
-                                        CircularProgressIndicator(
-                                                progress = progress.coerceIn(0f, 1f),
-                                                modifier = Modifier.fillMaxSize(),
-                                                color =
-                                                        if (isCompleted) SuccessDark
-                                                        else MaterialTheme.colorScheme.primary,
-                                                strokeWidth = 12.dp,
-                                                strokeCap = StrokeCap.Round
-                                        )
-
-                                        // Text Center
-                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                                Text(
-                                                        text = "${(progress * 100).toInt()}%",
-                                                        style =
-                                                                MaterialTheme.typography
-                                                                        .headlineLarge,
-                                                        fontWeight = FontWeight.Bold,
-                                                        color = MaterialTheme.colorScheme.onSurface
-                                                )
+                                        // Trained Sample Count
+                                        if (threshold > 0f) {
                                                 Text(
                                                         text =
-                                                                "${collectedCount} / ${targetSamples}",
-                                                        style =
-                                                                MaterialTheme.typography
-                                                                        .labelMedium,
+                                                                "Trained on ${trainedSampleCount ?: "N/A"} samples",
+                                                        style = MaterialTheme.typography.bodyMedium,
                                                         color =
                                                                 MaterialTheme.colorScheme
                                                                         .onSurfaceVariant
                                                 )
+                                        }
+                                }
+
+                                // Circular Progress
+                                if (threshold <= 0f) {
+                                        Box(
+                                                contentAlignment = Alignment.Center,
+                                                modifier = Modifier.size(160.dp)
+                                        ) {
+                                                // Track
+                                                CircularProgressIndicator(
+                                                        progress = 1f,
+                                                        modifier = Modifier.fillMaxSize(),
+                                                        color =
+                                                                MaterialTheme.colorScheme
+                                                                        .surfaceVariant,
+                                                        strokeWidth = 12.dp,
+                                                        strokeCap = StrokeCap.Round
+                                                )
+                                                // Progress
+                                                CircularProgressIndicator(
+                                                        progress = progress.coerceIn(0f, 1f),
+                                                        modifier = Modifier.fillMaxSize(),
+                                                        color =
+                                                                if (isCompleted) SuccessDark
+                                                                else
+                                                                        MaterialTheme.colorScheme
+                                                                                .primary,
+                                                        strokeWidth = 12.dp,
+                                                        strokeCap = StrokeCap.Round
+                                                )
+
+                                                // Text Center
+                                                Column(
+                                                        horizontalAlignment =
+                                                                Alignment.CenterHorizontally
+                                                ) {
+                                                        Text(
+                                                                text =
+                                                                        "${(progress * 100).toInt()}%",
+                                                                style =
+                                                                        MaterialTheme.typography
+                                                                                .headlineLarge,
+                                                                fontWeight = FontWeight.Bold,
+                                                                color =
+                                                                        MaterialTheme.colorScheme
+                                                                                .onSurface
+                                                        )
+                                                        Text(
+                                                                text =
+                                                                        "${collectedCount} / ${targetSamples}",
+                                                                style =
+                                                                        MaterialTheme.typography
+                                                                                .labelMedium,
+                                                                color =
+                                                                        MaterialTheme.colorScheme
+                                                                                .onSurfaceVariant
+                                                        )
+                                                }
                                         }
                                 }
 
