@@ -30,7 +30,6 @@ import kotlinx.coroutines.flow.asSharedFlow
 object ContinuousAuthManager {
     lateinit var continuousAuth: ContinuousAuth
 }
-
 /* ---------------------------------------------------------------------- */
 /*                              MAIN ACTIVITY                              */
 /* ---------------------------------------------------------------------- */

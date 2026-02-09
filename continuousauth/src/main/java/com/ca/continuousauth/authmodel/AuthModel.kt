@@ -84,7 +84,12 @@ class AuthModel(private val context: Context) : AutoCloseable {
 
                 Logger.d("Model loaded into buffer. Size: ${modelBuffer.capacity()} bytes")
 
-                val options = Interpreter.Options()
+                val options = Interpreter.Options().apply {
+                    // Use multiple threads (important for CPU performance)
+                    setNumThreads(Runtime.getRuntime().availableProcessors())
+                    // Enable XNNPACK for faster CPU inference/training
+                    setUseXNNPACK(true)
+                }
                 // Use CPU for training (Select TF Ops usually require CPU delegate or default)
                 interpreter = Interpreter(modelBuffer, options)
 
@@ -204,19 +209,21 @@ class AuthModel(private val context: Context) : AutoCloseable {
     }
 
     private fun performTrainingLoop(
-            interpreter: Interpreter,
-            trainBatches: List<FloatBuffer>,
-            epochs: Int
+        interpreter: Interpreter,
+        trainBatches: List<FloatBuffer>,
+        epochs: Int
     ): FloatArray {
         val losses = FloatArray(epochs)
         val lossOutputBuffer = FloatBuffer.allocate(1)
         val inputs: MutableMap<String, Any> = HashMap()
         val outputs: MutableMap<String, Any> = HashMap()
 
-        // Reuse map objects as much as possible, though putting new buffers is necessary
+        // Pre-assign the loss output buffer
         outputs[OUTPUT_LOSS] = lossOutputBuffer
 
         for (epoch in 0 until epochs) {
+            var epochLossSum = 0f
+
             for (batchIdx in trainBatches.indices) {
                 val inputBatch = trainBatches[batchIdx]
                 inputBatch.rewind()
@@ -224,17 +231,22 @@ class AuthModel(private val context: Context) : AutoCloseable {
 
                 inputs[INPUT_KEY] = inputBatch
 
+                // Run training step
                 interpreter.runSignature(inputs, outputs, SIG_TRAIN)
 
-                if (batchIdx == trainBatches.lastIndex) {
-                    losses[epoch] = lossOutputBuffer.get(0)
-                }
+                // Add batch loss to epoch sum
+                epochLossSum += lossOutputBuffer.get(0)
             }
-            // Log every epoch might be too verbose if epochs is large, consider interval
+
+            // Average loss over all batches for this epoch
+            losses[epoch] = epochLossSum / trainBatches.size
+
+            // Log periodically
             if ((epoch + 1) % 5 == 0 || epoch == 0 || epoch == epochs - 1) {
-                Logger.d("Epoch ${epoch + 1}/$epochs. Loss: ${losses[epoch]}")
+                Logger.d("Epoch ${epoch + 1}/$epochs. Avg Loss: ${losses[epoch]}")
             }
         }
+
         return losses
     }
 

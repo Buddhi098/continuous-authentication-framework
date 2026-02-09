@@ -76,7 +76,7 @@ class TotalAccelerometerDataCollector(
                 val x = event.values[0]
                 val y = event.values[1]
                 val z = event.values[2]
-                val timestamp = System.currentTimeMillis()
+                val timestamp = event.timestamp
 
                 // Create the data payload
                 // (Note: 'listOf' creates objects. If performance is critical later,

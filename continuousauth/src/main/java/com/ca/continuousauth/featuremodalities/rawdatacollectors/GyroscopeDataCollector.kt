@@ -72,7 +72,7 @@ class GyroscopeDataCollector(
         val listener = object : SensorEventListener {
             override fun onSensorChanged(event: SensorEvent) {
                 // Capture timestamp immediately
-                val timestamp = System.currentTimeMillis()
+                val timestamp = event.timestamp
 
                 // Copy values immediately (event object is reused by Android)
                 val x = event.values[0]
@@ -87,7 +87,7 @@ class GyroscopeDataCollector(
 
                 // Debugging: If this fails, consumer is too slow
                 if (result.isFailure) {
-                    // Logger.w("Gyro buffer overflow: Packet dropped")
+                     Logger.e("Gyro buffer overflow: Packet dropped")
                 }
             }
 

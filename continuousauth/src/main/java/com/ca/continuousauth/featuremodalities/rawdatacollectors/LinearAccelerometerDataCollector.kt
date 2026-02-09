@@ -77,7 +77,7 @@ class LinearAccelerometerDataCollector(
         val listener = object : SensorEventListener {
             override fun onSensorChanged(event: SensorEvent) {
                 // Capture timestamp immediately
-                val timestamp = System.currentTimeMillis()
+                val timestamp = event.timestamp
 
                 // Copy values immediately
                 val x = event.values[0]

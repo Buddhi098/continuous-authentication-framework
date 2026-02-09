@@ -175,6 +175,10 @@ class ContinuousAuth(
                                 return@collect
                             }
 
+                            if(AuthConfigManager.config.shouldLogFeatureVector){
+                                Logger.d("$vector")
+                            }
+
                             collectionLock.withLock {
                                 // --- Check before adding to prevent extra sample ---
                                 if (collectedList.size >= enrollmentSamples) {
