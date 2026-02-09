@@ -18,7 +18,9 @@ fun MainNavHost(
         enrollmentViewModel: EnrollmentViewModel,
         authenticationViewModel: AuthenticationViewModel,
         evaluationViewModel: EvaluationViewModel,
-        targetSamples: Int
+        targetSamples: Int,
+        tdtLockEnabled: Boolean = false,
+        onTdtLockToggle: (Boolean) -> Unit = {}
 ) {
     NavHost(navController, startDestination = Destination.Home.route) {
         composable(Destination.Home.route) { DashboardScreen(viewModel = dashboardViewModel) }
@@ -27,7 +29,9 @@ fun MainNavHost(
                     enrollmentViewModel = enrollmentViewModel,
                     authenticationViewModel = authenticationViewModel,
                     evaluationViewModel = evaluationViewModel,
-                    targetSamples = targetSamples
+                    targetSamples = targetSamples,
+                    tdtLockEnabled = tdtLockEnabled,
+                    onTdtLockToggle = onTdtLockToggle
             )
         }
         composable(Destination.Report.route) { ReportScreen() }

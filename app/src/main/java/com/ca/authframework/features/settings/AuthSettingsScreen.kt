@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Analytics
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material3.*
@@ -24,13 +25,22 @@ fun AuthSettingsScreen(
         enrollmentViewModel: EnrollmentViewModel,
         authenticationViewModel: AuthenticationViewModel,
         evaluationViewModel: EvaluationViewModel,
-        targetSamples: Int
+        targetSamples: Int,
+        tdtLockEnabled: Boolean = false,
+        onTdtLockToggle: (Boolean) -> Unit = {}
 ) {
     LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(24.dp)
     ) {
+        // TDT Lock Settings Group
+        item {
+            SettingsGroup(title = "Security", icon = Icons.Default.Lock) {
+                TdtLockToggle(enabled = tdtLockEnabled, onToggle = onTdtLockToggle)
+            }
+        }
+
         // Authentication Controls Group
         item {
             SettingsGroup(title = "Authentication", icon = Icons.Default.Security) {
@@ -51,6 +61,31 @@ fun AuthSettingsScreen(
                 EvaluationScreen(viewModel = evaluationViewModel)
             }
         }
+    }
+}
+
+@Composable
+fun TdtLockToggle(enabled: Boolean, onToggle: (Boolean) -> Unit) {
+    Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                    text = "TDT Auto-Lock",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                    text =
+                            if (enabled) "Device will lock when trust drops below threshold"
+                            else "Auto-lock is disabled",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Switch(checked = enabled, onCheckedChange = onToggle)
     }
 }
 

@@ -4,11 +4,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
+import com.ca.authframework.features.tdtlock.TdtComputer
 import com.ca.continuousauth.ContinuousAuth
 import com.ca.continuousauth.states.AuthVectorResult
 import kotlinx.coroutines.flow.StateFlow
 
-class AuthenticationViewModel(private val auth: ContinuousAuth) : ViewModel() {
+class AuthenticationViewModel(
+        private val auth: ContinuousAuth,
+        private val tdtComputer: TdtComputer = TdtComputer()
+) : ViewModel() {
 
     /* ----------------------------- */
     /* Auth state                    */
@@ -28,20 +32,16 @@ class AuthenticationViewModel(private val auth: ContinuousAuth) : ViewModel() {
         private set
 
     /* ================================================= */
-    /* ✅ TDT NON-OVERLAPPING WINDOW (GLOBAL STATE)       */
+    /* TDT State (delegated to TdtComputer)              */
     /* ================================================= */
-    val tdtWindowSize = 10
-    private val authWindow = ArrayDeque<Boolean>(tdtWindowSize)
+    val tdtWindowSize: Int
+        get() = 10 // For backward compatibility
 
-    var totalWindows by mutableStateOf(0)
-        private set
+    val totalWindows: StateFlow<Int> = tdtComputer.totalWindows
 
-    var authenticatedWindows by mutableStateOf(0)
-        private set
+    val authenticatedWindows: StateFlow<Int> = tdtComputer.authenticatedWindows
 
-    var tdtAccuracy by mutableStateOf(0f)
-        private set
-    /* ================================================= */
+    val tdtAccuracy: StateFlow<Float> = tdtComputer.tdtAccuracy
 
     /* ----------------------------- */
     /* Start Authentication          */
@@ -74,40 +74,15 @@ class AuthenticationViewModel(private val auth: ContinuousAuth) : ViewModel() {
     /* ----------------------------- */
     fun processAuthResult(result: AuthVectorResult) {
         lastAuthResult = result
-        // ✅ UPDATE TDT (Global Security State)
-        updateTdt(result.isAuthenticated)
+        // Delegate to TdtComputer
+        tdtComputer.addResult(result.isAuthenticated)
     }
 
-    /* ================================================= */
-    /* ✅ TDT CORE LOGIC (REUSABLE)                      */
-    /* ================================================= */
-    private fun updateTdt(isAuthenticated: Boolean) {
-        authWindow.addLast(isAuthenticated)
-
-        if (authWindow.size == tdtWindowSize) {
-
-            val authenticatedCount = authWindow.count { it }
-
-            val isAuthenticatedWindow = (authenticatedCount.toFloat() / tdtWindowSize) >= 0.5f
-
-            totalWindows++
-
-            if (isAuthenticatedWindow) {
-                authenticatedWindows++
-            }
-
-            tdtAccuracy = authenticatedWindows.toFloat() / totalWindows.toFloat()
-
-            // 🔁 NON-OVERLAPPING → CLEAR WINDOW
-            authWindow.clear()
-        }
-    }
-
-    private fun resetTdt() {
-        authWindow.clear()
-        totalWindows = 0
-        authenticatedWindows = 0
-        tdtAccuracy = 0f
+    /* ----------------------------- */
+    /* Reset TDT                     */
+    /* ----------------------------- */
+    fun resetTdt() {
+        tdtComputer.reset()
     }
 }
 

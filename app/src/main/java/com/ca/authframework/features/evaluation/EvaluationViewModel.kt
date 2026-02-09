@@ -5,10 +5,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import com.ca.authframework.features.authentication.AuthenticationViewModel
+import com.ca.authframework.features.tdtlock.TdtComputer
 
 /**
  * EvaluationViewModel - Manages evaluation state and coordinates with AuthenticationViewModel This
- * ViewModel is responsible for running authentication evaluations over a set of test samples
+ * ViewModel is responsible for running authentication evaluations over a set of test samples.
+ *
+ * Uses a local TdtComputer instance for evaluation-scoped TDT metrics that reset between
+ * evaluations.
  */
 class EvaluationViewModel(
         private val context: android.content.Context,
@@ -42,18 +46,15 @@ class EvaluationViewModel(
     var lastAuthResult by mutableStateOf<com.ca.continuousauth.states.AuthVectorResult?>(null)
         private set
 
-    // Local TDT State
-    private val tdtWindowSize = 10
-    private val authWindow = ArrayDeque<Boolean>(tdtWindowSize)
+    // Local TDT Computer for evaluation-scoped metrics
+    private val localTdtComputer = TdtComputer()
 
-    var tdtAccuracy by mutableStateOf(0.0)
-        private set
-
-    var authenticatedWindows by mutableStateOf(0)
-        private set
-
-    var totalWindows by mutableStateOf(0)
-        private set
+    val tdtAccuracy: Float
+        get() = localTdtComputer.tdtAccuracy.value.toDouble().run { this }.toFloat()
+    val authenticatedWindows: Int
+        get() = localTdtComputer.authenticatedWindows.value
+    val totalWindows: Int
+        get() = localTdtComputer.totalWindows.value
 
     /** Start evaluation with specified number of samples */
     fun startEvaluation(samples: Int) {
@@ -74,10 +75,10 @@ class EvaluationViewModel(
 
             processResult(result)
 
-            // 2. Push to Global Auth State (TDT, Top Bar)
+            // Push to Global Auth State (TDT, Top Bar)
             authViewModel.processAuthResult(result)
 
-            // 3. Check for Completion
+            // Check for Completion
             if (targetSamples > 0 && processedSamples >= targetSamples) {
                 stopEvaluation()
             }
@@ -94,18 +95,15 @@ class EvaluationViewModel(
         medianScore = 0.0
         lastAuthResult = null
 
-        // Reset TDT
-        authWindow.clear()
-        totalWindows = 0
-        authenticatedWindows = 0
-        tdtAccuracy = 0.0
+        // Reset local TDT
+        localTdtComputer.reset()
     }
 
     private fun processResult(result: com.ca.continuousauth.states.AuthVectorResult) {
         lastAuthResult = result
         processedSamples++
 
-        // 1. Update Local Metrics
+        // Update Local Metrics
         if (result.isAuthenticated) {
             acceptedCount++
         }
@@ -118,28 +116,8 @@ class EvaluationViewModel(
             medianScore = calculateMedian(scoreBuffer)
         }
 
-        // 2. Update Local TDT
-        updateTdt(result.isAuthenticated)
-    }
-
-    private fun updateTdt(isAuthenticated: Boolean) {
-        authWindow.addLast(isAuthenticated)
-
-        if (authWindow.size == tdtWindowSize) {
-            val authenticatedCount = authWindow.count { it }
-            val isAuthenticatedWindow = (authenticatedCount.toFloat() / tdtWindowSize) >= 0.5f
-
-            totalWindows++
-
-            if (isAuthenticatedWindow) {
-                authenticatedWindows++
-            }
-
-            tdtAccuracy = authenticatedWindows.toDouble() / totalWindows.toDouble()
-
-            // Non-Overlapping Window -> Clear
-            authWindow.clear()
-        }
+        // Update Local TDT
+        localTdtComputer.addResult(result.isAuthenticated)
     }
 
     /** Stop the current evaluation */

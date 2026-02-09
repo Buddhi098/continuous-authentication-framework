@@ -19,6 +19,9 @@ import com.ca.authframework.features.authentication.AuthenticationViewModel
 import com.ca.authframework.features.dashboard.DashboardViewModel
 import com.ca.authframework.features.enrollment.EnrollmentViewModel
 import com.ca.authframework.features.evaluation.EvaluationViewModel
+import com.ca.authframework.features.tdtlock.TdtComputer
+import com.ca.authframework.features.tdtlock.TdtLockConfig
+import com.ca.authframework.features.tdtlock.TdtLockFeature
 import com.ca.continuousauth.ContinuousAuth
 import com.ca.continuousauth.states.TouchEventData
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -30,6 +33,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 object ContinuousAuthManager {
     lateinit var continuousAuth: ContinuousAuth
 }
+
 /* ---------------------------------------------------------------------- */
 /*                              MAIN ACTIVITY                              */
 /* ---------------------------------------------------------------------- */
@@ -37,13 +41,7 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         private const val TARGET_SAMPLES = 200
-
-        // 🔐 TDT thresholds
-        private const val TDT_LOCK_THRESHOLD = 0.5f
-        private const val TDT_UNLOCK_THRESHOLD = 0.6f
     }
-
-    private val isEnableLock = mutableStateOf(false)
 
     private val touchEventFlow =
             MutableSharedFlow<TouchEventData>(replay = 0, extraBufferCapacity = 256)
@@ -52,7 +50,13 @@ class MainActivity : ComponentActivity() {
     private lateinit var authenticationViewModel: AuthenticationViewModel
     private lateinit var evaluationViewModel: EvaluationViewModel
 
-    private val isLocked = mutableStateOf(false)
+    // TDT Lock Feature (plug-and-play)
+    private val tdtLockConfig =
+            TdtLockConfig(windowSize = 10, lockThreshold = 0.5f, unlockThreshold = 0.6f)
+    private val tdtLockFeature = TdtLockFeature(tdtLockConfig)
+
+    // Shared TDT computer for global state
+    private val globalTdtComputer = TdtComputer(tdtLockConfig)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -72,13 +76,18 @@ class MainActivity : ComponentActivity() {
 
         val dashboardViewModel = DashboardViewModel(application)
 
-        authenticationViewModel = AuthenticationViewModel(ContinuousAuthManager.continuousAuth)
+        authenticationViewModel =
+                AuthenticationViewModel(ContinuousAuthManager.continuousAuth, globalTdtComputer)
         evaluationViewModel =
                 EvaluationViewModel(
                         applicationContext,
                         ContinuousAuthManager.continuousAuth,
                         authenticationViewModel
                 )
+
+        // Enable TDT lock feature (can be toggled via settings)
+        //        tdtLockFeature.enable()
+        tdtLockFeature.disable()
 
         setContent {
             AuthframeworkTheme {
@@ -98,6 +107,17 @@ class MainActivity : ComponentActivity() {
                 val currentAuthPercentage =
                         lastAuthResult?.authPercentage?.let { "%.2f%%".format(it) } ?: "N/A"
 
+                // Collect TDT lock state
+                val isLocked by tdtLockFeature.isLocked.collectAsState()
+                val isFeatureEnabled by tdtLockFeature.isEnabled.collectAsState()
+
+                // Forward auth results to TDT lock feature
+                LaunchedEffect(lastAuthResult) {
+                    lastAuthResult?.let { result ->
+                        tdtLockFeature.processResult(result.isAuthenticated)
+                    }
+                }
+
                 Scaffold(
                         topBar = {
                             AppTopBar(
@@ -109,20 +129,22 @@ class MainActivity : ComponentActivity() {
                         bottomBar = { BottomNavigationBar(navController) }
                 ) { innerPadding ->
                     Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
-
-                        // 🔐 NEW: TDT-BASED AUTO LOCK
-                        TdtAutoLockController()
-
                         MainNavHost(
                                 navController = navController,
                                 dashboardViewModel = dashboardViewModel,
                                 enrollmentViewModel = enrollmentViewModel,
                                 authenticationViewModel = authenticationViewModel,
                                 evaluationViewModel = evaluationViewModel,
-                                targetSamples = TARGET_SAMPLES
+                                targetSamples = TARGET_SAMPLES,
+                                tdtLockEnabled = isFeatureEnabled,
+                                onTdtLockToggle = { enabled ->
+                                    if (enabled) tdtLockFeature.enable()
+                                    else tdtLockFeature.disable()
+                                }
                         )
 
-                        if (isEnableLock.value && isLocked.value) {
+                        // Show lock screen if feature is enabled and locked
+                        if (isFeatureEnabled && isLocked) {
                             AppLockScreen()
                         }
                     }
@@ -166,27 +188,24 @@ class MainActivity : ComponentActivity() {
     }
 
     /* ------------------------------------------------------------------ */
-    /*              🔐 TDT-BASED AUTO LOCK CONTROLLER                      */
+    /*              TDT Lock Feature Controls                              */
     /* ------------------------------------------------------------------ */
-    @Composable
-    private fun TdtAutoLockController() {
-        if (!isEnableLock.value) return
 
-        val tdtAccuracy = authenticationViewModel.tdtAccuracy
-        val totalWindows = authenticationViewModel.totalWindows
+    /** Enable TDT-based auto-lock feature */
+    fun enableTdtLock() {
+        tdtLockFeature.enable()
+    }
 
-        LaunchedEffect(tdtAccuracy, totalWindows) {
-            if (totalWindows == 0) return@LaunchedEffect
+    /** Disable TDT-based auto-lock feature */
+    fun disableTdtLock() {
+        tdtLockFeature.disable()
+    }
 
-            // 🔒 Lock if trust drops
-            if (tdtAccuracy < TDT_LOCK_THRESHOLD) {
-                isLocked.value = true
-            }
+    /** Check if TDT lock feature is enabled */
+    fun isTdtLockEnabled(): Boolean = tdtLockFeature.isEnabled.value
 
-            // 🔓 Unlock if trust recovers
-            if (isLocked.value && tdtAccuracy >= TDT_UNLOCK_THRESHOLD) {
-                isLocked.value = false
-            }
-        }
+    /** Reset TDT lock feature state */
+    fun resetTdtLock() {
+        tdtLockFeature.reset()
     }
 }
