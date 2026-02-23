@@ -13,8 +13,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
-class EnrollmentViewModel(private val context: Context, private val auth: ContinuousAuth) :
-        ViewModel() {
+class EnrollmentViewModel(private val context: Context,
+                          private val auth: ContinuousAuth) : ViewModel() {
 
     companion object {
         private const val TAG = "CAFramework"
@@ -33,7 +33,6 @@ class EnrollmentViewModel(private val context: Context, private val auth: Contin
     val threshold: StateFlow<Float> = _threshold.asStateFlow()
 
     private val _trainedSampleCount = MutableStateFlow<Int?>(null)
-
     val trainedSampleCount: StateFlow<Int?> = _trainedSampleCount.asStateFlow()
 
     val isReEnrollmentAvailable: StateFlow<Boolean> = auth.isReEnrollmentAvailable

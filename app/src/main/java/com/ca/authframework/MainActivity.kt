@@ -18,6 +18,7 @@ import com.ca.authframework.core.ui.theme.AuthframeworkTheme
 import com.ca.authframework.features.authentication.AuthenticationViewModel
 import com.ca.authframework.features.dashboard.DashboardViewModel
 import com.ca.authframework.features.enrollment.EnrollmentViewModel
+import com.ca.authframework.features.evalhistory.EvaluationRepository
 import com.ca.authframework.features.evaluation.EvaluationViewModel
 import com.ca.authframework.features.tdtlock.TdtComputer
 import com.ca.authframework.features.tdtlock.TdtLockConfig
@@ -49,6 +50,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var enrollmentViewModel: EnrollmentViewModel
     private lateinit var authenticationViewModel: AuthenticationViewModel
     private lateinit var evaluationViewModel: EvaluationViewModel
+    private lateinit var evaluationRepository: EvaluationRepository
 
     // TDT Lock Feature (plug-and-play)
     private val tdtLockConfig =
@@ -78,11 +80,15 @@ class MainActivity : ComponentActivity() {
 
         authenticationViewModel =
                 AuthenticationViewModel(ContinuousAuthManager.continuousAuth, globalTdtComputer)
+
+        evaluationRepository = EvaluationRepository(applicationContext)
+
         evaluationViewModel =
                 EvaluationViewModel(
                         applicationContext,
                         ContinuousAuthManager.continuousAuth,
-                        authenticationViewModel
+                        authenticationViewModel,
+                        evaluationRepository
                 )
 
         // Enable TDT lock feature (can be toggled via settings)
@@ -135,6 +141,7 @@ class MainActivity : ComponentActivity() {
                                 enrollmentViewModel = enrollmentViewModel,
                                 authenticationViewModel = authenticationViewModel,
                                 evaluationViewModel = evaluationViewModel,
+                                evaluationRepository = evaluationRepository,
                                 targetSamples = TARGET_SAMPLES,
                                 tdtLockEnabled = isFeatureEnabled,
                                 onTdtLockToggle = { enabled ->

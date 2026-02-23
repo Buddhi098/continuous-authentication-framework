@@ -7,8 +7,9 @@ import androidx.navigation.compose.composable
 import com.ca.authframework.features.authentication.AuthenticationViewModel
 import com.ca.authframework.features.dashboard.DashboardScreen
 import com.ca.authframework.features.enrollment.EnrollmentViewModel
+import com.ca.authframework.features.evalhistory.EvalHistoryScreen
+import com.ca.authframework.features.evalhistory.EvaluationRepository
 import com.ca.authframework.features.evaluation.EvaluationViewModel
-import com.ca.authframework.features.report.ReportScreen
 import com.ca.authframework.features.settings.AuthSettingsScreen
 
 @Composable
@@ -18,6 +19,7 @@ fun MainNavHost(
         enrollmentViewModel: EnrollmentViewModel,
         authenticationViewModel: AuthenticationViewModel,
         evaluationViewModel: EvaluationViewModel,
+        evaluationRepository: EvaluationRepository,
         targetSamples: Int,
         tdtLockEnabled: Boolean = false,
         onTdtLockToggle: (Boolean) -> Unit = {}
@@ -34,6 +36,8 @@ fun MainNavHost(
                     onTdtLockToggle = onTdtLockToggle
             )
         }
-        composable(Destination.Report.route) { ReportScreen() }
+        composable(Destination.EvalHistory.route) {
+            EvalHistoryScreen(repository = evaluationRepository)
+        }
     }
 }

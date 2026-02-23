@@ -12,6 +12,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.*
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -189,12 +190,12 @@ fun EnrollmentScreen(viewModel: EnrollmentViewModel, targetSamples: Int = 100) {
                                                         verticalArrangement =
                                                                 Arrangement.spacedBy(12.dp)
                                                 ) {
-                                                        Row(
-                                                                verticalAlignment =
-                                                                        Alignment.CenterVertically,
-                                                                horizontalArrangement =
+                                                        Column(
+                                                                modifier = Modifier.fillMaxWidth(),
+                                                                verticalArrangement =
                                                                         Arrangement.SpaceBetween,
-                                                                modifier = Modifier.fillMaxWidth()
+                                                                horizontalAlignment =
+                                                                        Alignment.CenterHorizontally
                                                         ) {
                                                                 Text(
                                                                         text =

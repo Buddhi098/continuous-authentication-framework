@@ -5,6 +5,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import com.ca.authframework.features.authentication.AuthenticationViewModel
+import com.ca.authframework.features.evalhistory.EvaluationRecord
+import com.ca.authframework.features.evalhistory.EvaluationRepository
+import com.ca.authframework.features.evalhistory.EvaluatorLabel
 import com.ca.authframework.features.tdtlock.TdtComputer
 
 /**
@@ -17,7 +20,8 @@ import com.ca.authframework.features.tdtlock.TdtComputer
 class EvaluationViewModel(
         private val context: android.content.Context,
         private val auth: com.ca.continuousauth.ContinuousAuth,
-        private val authViewModel: AuthenticationViewModel
+        private val authViewModel: AuthenticationViewModel,
+        private val repository: EvaluationRepository
 ) : ViewModel() {
 
     // Evaluation state
@@ -46,6 +50,10 @@ class EvaluationViewModel(
     var lastAuthResult by mutableStateOf<com.ca.continuousauth.states.AuthVectorResult?>(null)
         private set
 
+    // Evaluator info (set when starting evaluation)
+    private var currentEvaluatorName: String = ""
+    private var currentEvaluatorLabel: EvaluatorLabel = EvaluatorLabel.LEGITIMATE
+
     // Local TDT Computer for evaluation-scoped metrics
     private val localTdtComputer = TdtComputer()
 
@@ -56,14 +64,18 @@ class EvaluationViewModel(
     val totalWindows: Int
         get() = localTdtComputer.totalWindows.value
 
-    /** Start evaluation with specified number of samples */
-    fun startEvaluation(samples: Int) {
+    /** Start evaluation with specified number of samples and evaluator info */
+    fun startEvaluation(samples: Int, evaluatorName: String, evaluatorLabel: EvaluatorLabel) {
         if (samples <= 0 || evaluationRunning) return
 
         if (!auth.isCheckpointExists.value) {
             // Cannot start without model
             return
         }
+
+        // Store evaluator info
+        currentEvaluatorName = evaluatorName
+        currentEvaluatorLabel = evaluatorLabel
 
         resetStats()
         targetSamples = samples
@@ -120,10 +132,24 @@ class EvaluationViewModel(
         localTdtComputer.addResult(result.isAuthenticated)
     }
 
-    /** Stop the current evaluation */
+    /** Stop the current evaluation and save record */
     fun stopEvaluation() {
+        val wasRunning = evaluationRunning
         evaluationRunning = false
         auth.stopAuthentication()
+
+        // Save evaluation record if we have processed samples
+        if (wasRunning && processedSamples > 0 && currentEvaluatorName.isNotBlank()) {
+            val record =
+                    EvaluationRecord(
+                            evaluatorName = currentEvaluatorName,
+                            evaluatorLabel = currentEvaluatorLabel,
+                            avgConfidence = authPercentage,
+                            tdtAccuracy = tdtAccuracy,
+                            samplesProcessed = processedSamples
+                    )
+            repository.saveRecord(record)
+        }
     }
 
     private fun calculateMedian(list: List<Float>): Double {

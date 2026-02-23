@@ -31,18 +31,6 @@ class AuthenticationViewModel(
     var errorMessage by mutableStateOf("")
         private set
 
-    /* ================================================= */
-    /* TDT State (delegated to TdtComputer)              */
-    /* ================================================= */
-    val tdtWindowSize: Int
-        get() = 10 // For backward compatibility
-
-    val totalWindows: StateFlow<Int> = tdtComputer.totalWindows
-
-    val authenticatedWindows: StateFlow<Int> = tdtComputer.authenticatedWindows
-
-    val tdtAccuracy: StateFlow<Float> = tdtComputer.tdtAccuracy
-
     /* ----------------------------- */
     /* Start Authentication          */
     /* ----------------------------- */
@@ -83,19 +71,5 @@ class AuthenticationViewModel(
     /* ----------------------------- */
     fun resetTdt() {
         tdtComputer.reset()
-    }
-}
-
-/* ----------------------------- */
-/* Helper: Median                */
-/* ----------------------------- */
-private fun List<Float>.median(): Float {
-    if (isEmpty()) return 0f
-    val sorted = sorted()
-    val mid = size / 2
-    return if (size % 2 == 0) {
-        (sorted[mid - 1] + sorted[mid]) / 2f
-    } else {
-        sorted[mid]
     }
 }

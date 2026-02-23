@@ -10,15 +10,26 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.ca.authframework.core.ui.theme.SuccessDark
+import com.ca.authframework.features.evalhistory.EvaluatorLabel
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EvaluationScreen(viewModel: EvaluationViewModel) {
         var sampleInput by remember { mutableStateOf("") }
+        var evaluatorName by remember { mutableStateOf("") }
+        var selectedLabel by remember { mutableStateOf(EvaluatorLabel.LEGITIMATE) }
+        var dropdownExpanded by remember { mutableStateOf(false) }
 
         // Derived state for button enabled
         val isRunning = viewModel.evaluationRunning
         val processed = viewModel.processedSamples
         val target = viewModel.targetSamples
+
+        // Check if start button should be enabled
+        val canStart =
+                !isRunning &&
+                        sampleInput.toIntOrNull()?.let { it > 0 } == true &&
+                        evaluatorName.isNotBlank()
 
         Column(
                 modifier = Modifier.fillMaxSize().padding(8.dp),
@@ -41,6 +52,64 @@ fun EvaluationScreen(viewModel: EvaluationViewModel) {
                                         fontWeight = FontWeight.Bold
                                 )
 
+                                // Evaluator Name Field
+                                OutlinedTextField(
+                                        value = evaluatorName,
+                                        onValueChange = { evaluatorName = it },
+                                        label = { Text("Evaluator Name") },
+                                        singleLine = true,
+                                        enabled = !isRunning,
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(8.dp)
+                                )
+
+                                // Evaluator Label Dropdown
+                                ExposedDropdownMenuBox(
+                                        expanded = dropdownExpanded,
+                                        onExpandedChange = { if (!isRunning) dropdownExpanded = it }
+                                ) {
+                                        OutlinedTextField(
+                                                value =
+                                                        selectedLabel.name.lowercase()
+                                                                .replaceFirstChar {
+                                                                        it.uppercase()
+                                                                },
+                                                onValueChange = {},
+                                                label = { Text("Evaluator Label") },
+                                                readOnly = true,
+                                                enabled = !isRunning,
+                                                trailingIcon = {
+                                                        ExposedDropdownMenuDefaults.TrailingIcon(
+                                                                expanded = dropdownExpanded
+                                                        )
+                                                },
+                                                modifier = Modifier.fillMaxWidth().menuAnchor(),
+                                                shape = RoundedCornerShape(8.dp)
+                                        )
+                                        ExposedDropdownMenu(
+                                                expanded = dropdownExpanded,
+                                                onDismissRequest = { dropdownExpanded = false }
+                                        ) {
+                                                EvaluatorLabel.entries.forEach { label ->
+                                                        DropdownMenuItem(
+                                                                text = {
+                                                                        Text(
+                                                                                label.name
+                                                                                        .lowercase()
+                                                                                        .replaceFirstChar {
+                                                                                                it.uppercase()
+                                                                                        }
+                                                                        )
+                                                                },
+                                                                onClick = {
+                                                                        selectedLabel = label
+                                                                        dropdownExpanded = false
+                                                                }
+                                                        )
+                                                }
+                                        }
+                                }
+
                                 Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -49,7 +118,7 @@ fun EvaluationScreen(viewModel: EvaluationViewModel) {
                                         OutlinedTextField(
                                                 value = sampleInput,
                                                 onValueChange = { sampleInput = it },
-                                                label = { Text("Samples Limit") },
+                                                label = { Text("Count") },
                                                 singleLine = true,
                                                 enabled = !isRunning,
                                                 modifier = Modifier.weight(1f),
@@ -62,10 +131,13 @@ fun EvaluationScreen(viewModel: EvaluationViewModel) {
                                                         else
                                                                 sampleInput.toIntOrNull()?.let {
                                                                         viewModel.startEvaluation(
-                                                                                it
+                                                                                it,
+                                                                                evaluatorName,
+                                                                                selectedLabel
                                                                         )
                                                                 }
                                                 },
+                                                enabled = isRunning || canStart,
                                                 modifier = Modifier.weight(1f).height(56.dp),
                                                 colors =
                                                         ButtonDefaults.buttonColors(
@@ -106,10 +178,11 @@ fun EvaluationScreen(viewModel: EvaluationViewModel) {
                                                 }
                                                 Spacer(Modifier.height(4.dp))
                                                 LinearProgressIndicator(
-                                                        progress =
+                                                        progress = {
                                                                 if (target > 0)
                                                                         processed.toFloat() / target
-                                                                else 0f,
+                                                                else 0f
+                                                        },
                                                         modifier =
                                                                 Modifier.fillMaxWidth()
                                                                         .height(8.dp)
@@ -200,9 +273,9 @@ fun EvaluationScreen(viewModel: EvaluationViewModel) {
                                 )
 
                                 StatRow("Average Score", "%.4f".format(viewModel.averageScore))
-                                Divider(Modifier.padding(vertical = 8.dp))
+                                HorizontalDivider(Modifier.padding(vertical = 8.dp))
                                 StatRow("Median Score", "%.4f".format(viewModel.medianScore))
-                                Divider(Modifier.padding(vertical = 8.dp))
+                                HorizontalDivider(Modifier.padding(vertical = 8.dp))
                                 StatRow(
                                         "Last Score",
                                         viewModel.lastAuthResult?.score?.let { "%.4f".format(it) }

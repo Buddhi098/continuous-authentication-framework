@@ -9,7 +9,7 @@ import com.ca.authframework.core.ui.navigation.Destination
 
 @Composable
 fun BottomNavigationBar(navController: NavHostController) {
-    val items = listOf(Destination.Home, Destination.Settings, Destination.Report)
+    val items = listOf(Destination.Home, Destination.Settings, Destination.EvalHistory)
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
 

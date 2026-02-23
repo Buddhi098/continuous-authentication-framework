@@ -50,28 +50,33 @@ class ContinuousAuth(
     // -----------------------------
     // Core class objects
     // -----------------------------
-    private val featureModel = FeatureModel()
-    // AuthModel is AutoCloseable now
-    private val authModel = AuthModel(context)
-    private val scaler = StandardScaler(context)
-
-    private val authManager =
-            AuthenticationManager(
-                    context = context,
-                    authModel = authModel,
-                    checkpointFile = checkpointFile,
-                    thresholdFile = thresholdFile,
-                    storedVectorsFile = storedVectorsFile,
-                    maxStoredVectors = AuthConfigManager.config.maxStoredAuthenticatedVectors
-            )
-
-    private val enrollmentManager =
-            EnrollmentManager(
-                    authModel = authModel,
-                    checkpointFile = checkpointFile,
-                    thresholdFile = thresholdFile,
-                    metadataFile = metadataFile
-            )
+    private val featureModel by lazy(LazyThreadSafetyMode.NONE) {
+        FeatureModel()
+    }
+    private val scaler by lazy(LazyThreadSafetyMode.NONE) {
+        StandardScaler(context)
+    }
+    private val authModel by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        AuthModel(context)
+    }
+    private val authManager by lazy {
+        AuthenticationManager(
+            context = context,
+            authModel = authModel,
+            checkpointFile = checkpointFile,
+            thresholdFile = thresholdFile,
+            storedVectorsFile = storedVectorsFile,
+            maxStoredVectors = AuthConfigManager.config.maxStoredAuthenticatedVectors
+        )
+    }
+    private val enrollmentManager by lazy {
+        EnrollmentManager(
+            authModel = authModel,
+            checkpointFile = checkpointFile,
+            thresholdFile = thresholdFile,
+            metadataFile = metadataFile
+        )
+    }
 
     // -----------------------------
     // Data collection & feature extraction component states
@@ -108,34 +113,42 @@ class ContinuousAuth(
     private val isAuthenticating = AtomicBoolean(false)
 
     init {
-        // Parameter validation
+        // 1. Parameter validation (fail fast)
+        require(enrollmentSamples > 0) {
+            "Enrollment samples must be greater than 0"
+        }
+
+        // 2. Ensure filesDir exists (defensive, non-blocking)
         if (!context.filesDir.exists() && !context.filesDir.mkdirs()) {
             Logger.e("Context filesDir does not exist and could not be created.")
         }
 
-        require(enrollmentSamples > 0) { "Enrollment samples must be greater than 0" }
-
-        // Initialize Logger
+        // 3. Configure logger (preferably app-level, but kept here)
         Logger.setEnabled(enableLog)
 
-        // Load previous state if exists
-        loadCollectionState()?.let { state ->
-            runBlocking {
-                collectionLock.withLock {
-                    collectedList.addAll(state.collectedList.take(enrollmentSamples))
-                    _collectedSamplesCount.value = collectedList.size
-                    remainingSamples = (enrollmentSamples - collectedList.size).coerceAtLeast(0)
-                }
+        // 4. Trigger async state restoration
+        restorePreviousState()
+    }
+
+    private fun restorePreviousState() {
+        scope.launch {
+            val state = loadCollectionState() ?: return@launch
+
+            collectionLock.withLock {
+                collectedList.clear()
+                collectedList.addAll(state.collectedList.take(enrollmentSamples))
+
+                _collectedSamplesCount.value = collectedList.size
+                remainingSamples =
+                    (enrollmentSamples - collectedList.size).coerceAtLeast(0)
+
+                _isPaused.value = remainingSamples!! > 0
             }
-            // If we have remaining samples, we are paused implicitly until resumed
-            remainingSamples?.let {
-                if (it > 0) {
-                    _isPaused.value = true
-                }
-            }
+
             updateProgress()
+
             Logger.d(
-                    "Resuming from saved state: remainingSamples=$remainingSamples, collected=${collectedList.size}"
+                "Resumed from saved state: remainingSamples=$remainingSamples, collected=${collectedList.size}"
             )
         }
     }
@@ -143,7 +156,6 @@ class ContinuousAuth(
     // -----------------------------
     // Collect training samples
     // -----------------------------
-
     fun startCollecting() {
         if (_isCollecting.value || remainingSamples == 0) return
         Logger.d("Starting collection. Remaining samples : $remainingSamples")

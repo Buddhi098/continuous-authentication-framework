@@ -9,5 +9,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 sealed class Destination(val route: String, val title: String, val icon: ImageVector) {
     object Home : Destination("home", "Dashboard", Icons.Default.Home)
     object Settings : Destination("auth_settings", "Auth Settings", Icons.Default.Settings)
-    object Report : Destination("report", "Report", Icons.AutoMirrored.Filled.List)
+    object EvalHistory :
+            Destination("eval_history", "Eval History", Icons.AutoMirrored.Filled.List)
 }
