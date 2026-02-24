@@ -99,10 +99,10 @@ class FeatureModel {
             dispatcher = dispatcher
         )
 
-    val totalAccelFlow = collectProcessedTotalAccelFeatures(
-        collector = { totalAccelCollector.start() },
-        dispatcher = dispatcher
-    )
+        val totalAccelFlow = collectProcessedTotalAccelFeatures(
+            collector = { totalAccelCollector.start() },
+            dispatcher = dispatcher
+        )
 
         /* ------------------------------------------------------------------
          * Feature fusion

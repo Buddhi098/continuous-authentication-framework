@@ -6,6 +6,7 @@ import com.ca.continuousauth.featuremodalities.dataprocessing.denoisers.denoiseP
 import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.FeatureExtractor
 import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.featurePipeline
 import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.featureextractorcollection.MeanFeatureExtractor
+import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.featureextractorcollection.SumFeatureExtractor
 import com.ca.continuousauth.featuremodalities.dataprocessing.windowing.windowedFlow
 import com.ca.continuousauth.utils.Logger
 import kotlinx.coroutines.CoroutineDispatcher
@@ -20,17 +21,17 @@ fun collectTouchDynamicFeature(
     dispatcher: CoroutineDispatcher = Dispatchers.Default
 ): Flow<List<Float>> {
 
-    val windowSize: Int = AuthConfigManager.config.windowSize
-    val windowOverlap: Double = AuthConfigManager.config.windowOverlapRatio
+    val touchWindowSize: Int = AuthConfigManager.config.touchWindowSize
+    val touchWindowOverlap: Double = AuthConfigManager.config.touchWindowOverlapRatio
 
     val denoisers: List<SensorDenoiser> = emptyList()
 
     val featureExtractors: List<FeatureExtractor> = listOf(
-        MeanFeatureExtractor()
+        SumFeatureExtractor()
     )
 
     return collector()
-        .windowedFlow(windowSize, windowOverlap)
+        .windowedFlow(touchWindowSize, touchWindowOverlap)
         .denoisePipeline(denoisers)
         .featurePipeline(featureExtractors)
         .flowOn(dispatcher)

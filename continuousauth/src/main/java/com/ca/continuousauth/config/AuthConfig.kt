@@ -11,6 +11,8 @@ private constructor(
         val enrollmentSamples: Int,
         val windowSize: Int,
         val windowOverlapRatio: Double,
+        val touchWindowSize: Int,
+        val touchWindowOverlapRatio: Double,
         val shouldLogFeatureVector: Boolean,
 
         /* ------------------------------------------------------------------
@@ -53,6 +55,10 @@ private constructor(
         require(enrollmentSamples > 0) { "enrollmentSamples must be > 0" }
         require(windowSize > 0) { "windowSize must be > 0" }
         require(windowOverlapRatio in 0.0..0.9) { "windowOverlapRatio must be between 0.0 and 0.9" }
+        require(touchWindowSize > 0) { "touchWindowSize must be > 0" }
+        require(touchWindowOverlapRatio in 0.0..0.9) {
+            "touchWindowOverlapRatio must be between 0.0 and 0.9"
+        }
         require(trainingEpochs > 0) { "trainingEpochs must be > 0" }
         require(trainingBatchSize > 0) { "trainingBatchSize must be > 0" }
         require(featureDimension > 0) { "featureDimension must be > 0" }
@@ -72,6 +78,8 @@ private constructor(
         private var enrollmentSamples: Int = 2000
         private var windowSize: Int = 128
         private var windowOverlapRatio: Double = 0.5
+        private var touchWindowSize: Int = 50
+        private var touchWindowOverlapRatio: Double = 0.0
         private var shouldLogFeatureVector: Boolean = true
         private var maxStoredAuthenticatedVectors: Int = 2000
 
@@ -108,7 +116,8 @@ private constructor(
         fun windowSize(value: Int) = apply { windowSize = value }
 
         fun windowOverlapRatio(value: Double) = apply { windowOverlapRatio = value }
-
+        fun touchWindowSize(value: Int) = apply { touchWindowSize = value }
+        fun touchWindowOverlapRatio(value: Double) = apply { touchWindowOverlapRatio = value }
         fun shouldLogFeatureVector(value: Boolean) = apply { shouldLogFeatureVector = value }
 
         fun modelFileName(value: String) = apply { modelFileName = value }
@@ -150,6 +159,8 @@ private constructor(
                         enrollmentSamples = enrollmentSamples,
                         windowSize = windowSize,
                         windowOverlapRatio = windowOverlapRatio,
+                        touchWindowSize = touchWindowSize,
+                        touchWindowOverlapRatio = touchWindowOverlapRatio,
                         shouldLogFeatureVector = shouldLogFeatureVector,
                         modelFileName = modelFileName,
                         trainingEpochs = trainingEpochs,

@@ -181,8 +181,25 @@ class TouchDataCollector(
 
                         // Periodic emission at configured frequency
                         val emissionJob = launch {
+                            val zero = zeroVector()
+                            var lastEmitted: List<Float>? = null
+
                             while (isActive) {
-                                trySend(System.currentTimeMillis() to lastVector.get()).isSuccess
+                                val currentVector = lastVector.getAndSet(zero)
+
+                                if (currentVector != zero) {
+                                    if (currentVector != lastEmitted) {
+                                        trySend(System.currentTimeMillis() to currentVector)
+                                                .isSuccess
+                                        // Emit zero features immediately after emission
+                                        trySend(System.currentTimeMillis() to zero).isSuccess
+                                        lastEmitted = zero
+                                    }
+                                } else {
+                                    trySend(System.currentTimeMillis() to zero).isSuccess
+                                    lastEmitted = zero
+                                }
+
                                 delay(minIntervalMs)
                             }
                         }
