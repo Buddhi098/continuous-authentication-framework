@@ -205,7 +205,6 @@ class VariationalSensorAutoencoder(BaseAnomalyDetector):
         """Store current weights as constants for initialization."""
         self.baked_weights = [tf.constant(w.numpy(), dtype=w.dtype) for w in self.trainable_variables]
 
-    @tf.function(input_signature=[tf.TensorSpec(shape=[None, DEFAULT_INPUT_DIM], dtype=tf.float32)])
     def infer_func(self, inputs: tf.Tensor) -> Dict[str, tf.Tensor]:
         reconstruction, z_mean, z_log_var = self.call(inputs, training=False)
         
@@ -222,7 +221,6 @@ class VariationalSensorAutoencoder(BaseAnomalyDetector):
             "z_mean": z_mean
         }
 
-    @tf.function(input_signature=[tf.TensorSpec(shape=[DEFAULT_BATCH_SIZE, DEFAULT_INPUT_DIM], dtype=tf.float32)])
     def train_func(self, inputs: tf.Tensor) -> Dict[str, tf.Tensor]:
         with tf.GradientTape() as tape:
             reconstruction, z_mean, z_log_var = self.call(inputs, training=True)
@@ -243,7 +241,6 @@ class VariationalSensorAutoencoder(BaseAnomalyDetector):
         
         return {"loss": total_loss, "mse": mse_loss, "kl": kl_loss}
 
-    @tf.function(input_signature=[tf.TensorSpec(shape=[1], dtype=tf.float32)])
     def init_model(self, x: tf.Tensor) -> Dict[str, tf.Tensor]:
         if self.baked_weights:
             for var, baked in zip(self.trainable_variables, self.baked_weights):
@@ -265,3 +262,22 @@ class VariationalSensorAutoencoder(BaseAnomalyDetector):
             for v in self.optimizer.variables:
                 v.assign(tf.zeros_like(v))
         return {"status": tf.constant(1.0, dtype=tf.float32)}
+
+    def get_signatures(self) -> Dict[str, Any]:
+        signatures = super().get_signatures()
+        
+        # Override with our specific input dimensions dynamically
+        infer_fn = tf.function(self.infer_func).get_concrete_function(
+            tf.TensorSpec(shape=[None, self.input_dim], dtype=tf.float32, name="inputs")
+        )
+        train_fn = tf.function(self.train_func).get_concrete_function(
+            tf.TensorSpec(shape=[self.batch_size, self.input_dim], dtype=tf.float32, name="inputs")
+        )
+        init_fn = tf.function(self.init_model).get_concrete_function(
+            tf.TensorSpec(shape=[1], dtype=tf.float32, name="x")
+        )
+        
+        signatures["infer"] = infer_fn
+        signatures["train"] = train_fn
+        signatures["init_model"] = init_fn
+        return signatures

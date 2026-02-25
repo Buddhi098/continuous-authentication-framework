@@ -32,6 +32,7 @@ fun AuthenticationScreen(viewModel: AuthenticationViewModel) {
         // Collect ViewModel state
         // -----------------------------
         val isCheckpointExists by viewModel.isCheckpointExists.collectAsState()
+        val isFusionReady by viewModel.isFusionModelReady.collectAsState()
         val isRunning by viewModel::authenticationRunning
         val lastAuthResult by viewModel::lastAuthResult
 
@@ -52,27 +53,69 @@ fun AuthenticationScreen(viewModel: AuthenticationViewModel) {
                                                 else ErrorDark.copy(alpha = 0.1f)
                                 )
                 ) {
-                        Row(
+                        Column(
                                 modifier = Modifier.padding(16.dp).fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.Center
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                                Icon(
-                                        imageVector =
-                                                if (isCheckpointExists) Icons.Default.CheckCircle
-                                                else Icons.Default.Warning,
-                                        contentDescription = null,
-                                        tint = if (isCheckpointExists) SuccessDark else ErrorDark,
-                                        modifier = Modifier.size(20.dp).padding(end = 8.dp)
-                                )
-                                Text(
-                                        text =
-                                                if (isCheckpointExists) "Model Ready"
-                                                else "Model Not Found",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        color = if (isCheckpointExists) SuccessDark else ErrorDark,
-                                        fontWeight = FontWeight.Bold
-                                )
+                                Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.Center,
+                                        modifier = Modifier.fillMaxWidth()
+                                ) {
+                                        Icon(
+                                                imageVector =
+                                                        if (isCheckpointExists)
+                                                                Icons.Default.CheckCircle
+                                                        else Icons.Default.Warning,
+                                                contentDescription = null,
+                                                tint =
+                                                        if (isCheckpointExists) SuccessDark
+                                                        else ErrorDark,
+                                                modifier = Modifier.size(20.dp).padding(end = 8.dp)
+                                        )
+                                        Text(
+                                                text =
+                                                        if (isCheckpointExists) "Model Ready"
+                                                        else "Model Not Found",
+                                                style = MaterialTheme.typography.titleMedium,
+                                                color =
+                                                        if (isCheckpointExists) SuccessDark
+                                                        else ErrorDark,
+                                                fontWeight = FontWeight.Bold
+                                        )
+                                }
+
+                                // Auth Mode Badge
+                                if (isCheckpointExists) {
+                                        Surface(
+                                                color =
+                                                        if (isFusionReady)
+                                                                SuccessDark.copy(alpha = 0.15f)
+                                                        else
+                                                                MaterialTheme.colorScheme.primary
+                                                                        .copy(alpha = 0.15f),
+                                                shape = RoundedCornerShape(16.dp)
+                                        ) {
+                                                Text(
+                                                        text =
+                                                                if (isFusionReady) "Sensor + Touch"
+                                                                else "Sensor Only",
+                                                        modifier =
+                                                                Modifier.padding(
+                                                                        horizontal = 12.dp,
+                                                                        vertical = 4.dp
+                                                                ),
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color =
+                                                                if (isFusionReady) SuccessDark
+                                                                else
+                                                                        MaterialTheme.colorScheme
+                                                                                .primary,
+                                                        fontWeight = FontWeight.Medium
+                                                )
+                                        }
+                                }
                         }
                 }
 

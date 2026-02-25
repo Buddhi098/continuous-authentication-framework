@@ -13,8 +13,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
-class EnrollmentViewModel(private val context: Context,
-                          private val auth: ContinuousAuth) : ViewModel() {
+class EnrollmentViewModel(private val context: Context, private val auth: ContinuousAuth) :
+        ViewModel() {
 
     companion object {
         private const val TAG = "CAFramework"
@@ -32,12 +32,16 @@ class EnrollmentViewModel(private val context: Context,
     private val _threshold = MutableStateFlow(0f)
     val threshold: StateFlow<Float> = _threshold.asStateFlow()
 
+    private val _fusionThreshold = MutableStateFlow(0f)
+    val fusionThreshold: StateFlow<Float> = _fusionThreshold.asStateFlow()
+
     private val _trainedSampleCount = MutableStateFlow<Int?>(null)
     val trainedSampleCount: StateFlow<Int?> = _trainedSampleCount.asStateFlow()
 
     val isReEnrollmentAvailable: StateFlow<Boolean> = auth.isReEnrollmentAvailable
     val storedVectorCount: StateFlow<Int> = auth.storedVectorCount
     val maxStoredVectorCount: Int = auth.maxStoredVectors
+    val isFusionModelReady: StateFlow<Boolean> = auth.isFusionModelReady
 
     private var enrollmentTriggered = false
     private var progressJob: Job? = null
@@ -45,7 +49,11 @@ class EnrollmentViewModel(private val context: Context,
     init {
         try {
             _threshold.value = auth.getThreshold() ?: 0f
-            Log.d(TAG, "Loaded threshold: ${_threshold.value}")
+            _fusionThreshold.value = auth.getFusionThreshold() ?: 0f
+            Log.d(
+                    TAG,
+                    "Loaded thresholds: sensor=${_threshold.value}, fusion=${_fusionThreshold.value}"
+            )
 
             if (_threshold.value > 0f) {
                 // Load metadata if model exists
@@ -109,7 +117,8 @@ class EnrollmentViewModel(private val context: Context,
             auth.clearEnrollmentFiles()
             _statusMessage.value = ""
             _statusMessage.value = ""
-            _threshold.value = 0f // Reset threshold to indicate no model
+            _threshold.value = 0f
+            _fusionThreshold.value = 0f
             _trainedSampleCount.value = null
             enrollmentTriggered = false
             progressJob?.cancel()
@@ -137,7 +146,8 @@ class EnrollmentViewModel(private val context: Context,
             Log.d(TAG, "Clearing enrollment files")
             Log.d(TAG, "Clearing enrollment files")
             auth.clearEnrollmentFiles()
-            _threshold.value = 0f // Reset threshold to indicate no model
+            _threshold.value = 0f
+            _fusionThreshold.value = 0f
             _trainedSampleCount.value = null
         } catch (e: Exception) {
             Log.e(TAG, "Failed to clear enrollment files", e)
@@ -212,10 +222,14 @@ class EnrollmentViewModel(private val context: Context,
                     if (result.success) {
                         val newThreshold = result.threshold
                         if (newThreshold != null) {
-                            Log.d(TAG, "Enrollment succeeded. Threshold=$newThreshold")
+                            Log.d(
+                                    TAG,
+                                    "Enrollment succeeded. Threshold=$newThreshold, fusionAvailable=${result.fusionAvailable}"
+                            )
                             _threshold.value = newThreshold
+                            _fusionThreshold.value = result.fusionThreshold ?: 0f
                             _trainedSampleCount.value = result.trainedSampleCount
-                            onEnrollmentCompleted()
+                            onEnrollmentCompleted(result.message)
                         } else {
                             Log.e(TAG, "Enrollment success but threshold is null")
                             onEnrollmentFailed()
@@ -238,8 +252,14 @@ class EnrollmentViewModel(private val context: Context,
         _statusMessage.value = "Training model…"
     }
 
-    private fun onEnrollmentCompleted() {
-        _statusMessage.value = "Model trained. Threshold: ${"%.2f".format(_threshold.value)}"
+    private fun onEnrollmentCompleted(resultMessage: String? = null) {
+        val mode =
+                if (auth.isFusionModelReady.value)
+                        "Multi-modal authentication active (Sensor + Touch)"
+                else "Sensor-only authentication active"
+        _statusMessage.value =
+                resultMessage
+                        ?: "Model trained. Threshold: ${"%.2f".format(_threshold.value)}. $mode"
 
         try {
             auth.refreshCheckpointState()

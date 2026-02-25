@@ -23,12 +23,13 @@ import org.tensorflow.lite.Interpreter
  * Thread-Safety: All public methods accessing the interpreter are thread-safe via [ReentrantLock].
  * Performance: Reuses standard buffers for inference to minimize allocation overhead.
  */
-class AuthModel(private val context: Context) : AutoCloseable {
+class AuthModel(
+        private val context: Context,
+        private val modelFileName: String,
+        private val inputDim: Int
+) : AutoCloseable {
 
     companion object {
-        private val MODEL_FILENAME = AuthConfigManager.config.modelFileName
-        private var INPUT_DIM = AuthConfigManager.config.featureDimension
-
         // Signature Keys (Must match Python export)
         private val SIG_TRAIN = AuthConfigManager.config.sigTrain
         private val SIG_INFER = AuthConfigManager.config.sigInfer
@@ -52,9 +53,9 @@ class AuthModel(private val context: Context) : AutoCloseable {
 
     // Pre-allocated buffers for Inference to avoid allocation in hot path
     // These are protected by [lock]
-    private val inferenceInputBuffer: FloatBuffer by lazy { FloatBuffer.allocate(1 * INPUT_DIM) }
+    private val inferenceInputBuffer: FloatBuffer by lazy { FloatBuffer.allocate(1 * inputDim) }
     private val inferenceReconstructionBuffer: FloatBuffer by lazy {
-        FloatBuffer.allocate(INPUT_DIM)
+        FloatBuffer.allocate(inputDim)
     }
     private val inferenceErrorBuffer: FloatBuffer by lazy { FloatBuffer.allocate(1) }
 
@@ -79,17 +80,18 @@ class AuthModel(private val context: Context) : AutoCloseable {
             try {
                 if (interpreter != null) return
 
-                Logger.d("Attempting to load model file: $MODEL_FILENAME")
-                val modelBuffer = loadModelFile(MODEL_FILENAME)
+                Logger.d("Attempting to load model file: $modelFileName")
+                val modelBuffer = loadModelFile(modelFileName)
 
                 Logger.d("Model loaded into buffer. Size: ${modelBuffer.capacity()} bytes")
 
-                val options = Interpreter.Options().apply {
-                    // Use multiple threads (important for CPU performance)
-                    setNumThreads(Runtime.getRuntime().availableProcessors())
-                    // Enable XNNPACK for faster CPU inference/training
-                    setUseXNNPACK(true)
-                }
+                val options =
+                        Interpreter.Options().apply {
+                            // Use multiple threads (important for CPU performance)
+                            setNumThreads(Runtime.getRuntime().availableProcessors())
+                            // Enable XNNPACK for faster CPU inference/training
+                            setUseXNNPACK(true)
+                        }
                 // Use CPU for training (Select TF Ops usually require CPU delegate or default)
                 interpreter = Interpreter(modelBuffer, options)
 
@@ -192,12 +194,12 @@ class AuthModel(private val context: Context) : AutoCloseable {
             val endIdx = startIdx + batchSize
             val batch = trainingData.subList(startIdx, endIdx)
 
-            val buffer = FloatBuffer.allocate(batch.size * INPUT_DIM)
+            val buffer = FloatBuffer.allocate(batch.size * inputDim)
             for (sample in batch) {
                 // Safe check handled by Kotlin list access, but dimension check is good
-                if (sample.size != INPUT_DIM) {
+                if (sample.size != inputDim) {
                     throw IllegalArgumentException(
-                            "Sample at index matches batch but has wrong dim: ${sample.size} vs $INPUT_DIM"
+                            "Sample at index matches batch but has wrong dim: ${sample.size} vs $inputDim"
                     )
                 }
                 buffer.put(sample.toFloatArray())
@@ -209,9 +211,9 @@ class AuthModel(private val context: Context) : AutoCloseable {
     }
 
     private fun performTrainingLoop(
-        interpreter: Interpreter,
-        trainBatches: List<FloatBuffer>,
-        epochs: Int
+            interpreter: Interpreter,
+            trainBatches: List<FloatBuffer>,
+            epochs: Int
     ): FloatArray {
         val losses = FloatArray(epochs)
         val lossOutputBuffer = FloatBuffer.allocate(1)
@@ -352,14 +354,14 @@ class AuthModel(private val context: Context) : AutoCloseable {
 
     /**
      * Perform inference on a single feature vector and return a score.
-     * @param featureVector The input feature vector of size INPUT_DIM
+     * @param featureVector The input feature vector of size inputDim
      * @return The reconstruction/error score, or null if inference failed
      */
     fun inferScore(featureVector: List<Float>): Float? {
         // Lightweight check before lock
-        if (featureVector.size != INPUT_DIM) {
+        if (featureVector.size != inputDim) {
             Logger.e(
-                    "Feature vector size ${featureVector.size} does not match expected INPUT_DIM $INPUT_DIM"
+                    "Feature vector size ${featureVector.size} does not match expected inputDim $inputDim"
             )
             return null
         }

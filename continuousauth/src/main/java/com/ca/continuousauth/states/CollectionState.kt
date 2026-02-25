@@ -1,6 +1,7 @@
 package com.ca.continuousauth.states
 
 data class CollectionState(
-    val collectedList: List<List<Float>>,
-    val completed: Boolean = false
+        val sensorCollectedList: List<List<Float>>,
+        val fusionCollectedList: List<List<Float>> = emptyList(),
+        val completed: Boolean = false
 )

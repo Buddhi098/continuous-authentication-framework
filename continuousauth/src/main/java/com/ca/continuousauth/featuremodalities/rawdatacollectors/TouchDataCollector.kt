@@ -1,9 +1,7 @@
 package com.ca.continuousauth.featuremodalities.rawdatacollectors
 
-import com.ca.continuousauth.config.AuthConfigManager
 import com.ca.continuousauth.states.TouchEventData
 import com.ca.continuousauth.utils.Logger
-import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.abs
 import kotlin.math.sqrt
 import kotlinx.coroutines.*
@@ -102,7 +100,6 @@ private class GestureState {
  */
 class TouchDataCollector(
         private val touchEventFlow: Flow<TouchEventData>?,
-        private val frequencyHz: Int = AuthConfigManager.config.sampleCollectionFrequencyHz,
         private val dispatcher: CoroutineDispatcher = Dispatchers.Default
 ) : RawDataCollector<List<Float>> {
 
@@ -110,28 +107,22 @@ class TouchDataCollector(
 
     companion object {
         private const val FEATURE_VECTOR_SIZE = 14
-        private const val BUFFER_CAPACITY = 50
+        private const val BUFFER_CAPACITY = 100
     }
 
     override fun start(): Flow<Pair<Long, List<Float>>> =
             callbackFlow {
-                        val minIntervalMs = 1000L / frequencyHz
-                        val lastVector = AtomicReference(zeroVector())
+                        // Emit initial zero vector so combine is not blocked
+                        trySend(System.currentTimeMillis() to zeroVector()).isSuccess
 
                         // ------------------------------------------------
                         // CASE 1: TouchEventFlow NOT available → Fallback
                         // ------------------------------------------------
                         if (touchEventFlow == null) {
                             Logger.d(
-                                    "TouchEventFlow is null. Emitting zero vectors at ${frequencyHz}Hz."
+                                    "TouchEventFlow is null. Emitted initial zero vector. Suspending."
                             )
-                            val zeroJob = launch {
-                                while (isActive) {
-                                    trySend(System.currentTimeMillis() to zeroVector())
-                                    delay(minIntervalMs)
-                                }
-                            }
-                            awaitClose { zeroJob.cancel() }
+                            awaitClose {}
                             return@callbackFlow
                         }
 
@@ -139,9 +130,7 @@ class TouchDataCollector(
                         // CASE 2: TouchEventFlow available → Process events
                         // ------------------------------------------------
                         val gestureState = GestureState()
-
-                        // Emit initial zero vector
-                        trySend(System.currentTimeMillis() to lastVector.get()).isSuccess
+                        var lastEmittedVector: List<Float>? = null
 
                         val eventJob =
                                 touchEventFlow
@@ -154,6 +143,9 @@ class TouchDataCollector(
                                                             event.timestamp
                                                     )
                                                     gestureState.recordInitialData(event)
+                                                    Logger.d(
+                                                            "TouchDataCollector: ACTION_DOWN at (${event.x}, ${event.y})"
+                                                    )
                                                 }
                                                 TouchAction.ACTION_MOVE -> {
                                                     gestureState.addMoveData(event)
@@ -164,10 +156,21 @@ class TouchDataCollector(
                                                                     event,
                                                                     gestureState
                                                             )
-                                                    lastVector.set(vector)
+                                                    val hasNonZero = vector.any { it != 0f }
                                                     Logger.d(
-                                                            "TouchDataCollector: Gesture completed - features extracted"
+                                                            "TouchDataCollector: ACTION_UP - computed feature vector (dim=${vector.size}, hasNonZero=$hasNonZero)"
                                                     )
+                                                    if (hasNonZero && vector != lastEmittedVector) {
+                                                        trySend(event.timestamp to vector).isSuccess
+                                                        lastEmittedVector = vector
+                                                        Logger.d(
+                                                                "TouchDataCollector: Gesture completed - new feature emitted"
+                                                        )
+                                                    } else {
+                                                        Logger.d(
+                                                                "TouchDataCollector: Gesture completed - skipped (duplicate or zero)"
+                                                        )
+                                                    }
                                                 }
                                             }
                                         }
@@ -179,35 +182,7 @@ class TouchDataCollector(
                                         }
                                         .launchIn(this)
 
-                        // Periodic emission at configured frequency
-                        val emissionJob = launch {
-                            val zero = zeroVector()
-                            var lastEmitted: List<Float>? = null
-
-                            while (isActive) {
-                                val currentVector = lastVector.getAndSet(zero)
-
-                                if (currentVector != zero) {
-                                    if (currentVector != lastEmitted) {
-                                        trySend(System.currentTimeMillis() to currentVector)
-                                                .isSuccess
-                                        // Emit zero features immediately after emission
-                                        trySend(System.currentTimeMillis() to zero).isSuccess
-                                        lastEmitted = zero
-                                    }
-                                } else {
-                                    trySend(System.currentTimeMillis() to zero).isSuccess
-                                    lastEmitted = zero
-                                }
-
-                                delay(minIntervalMs)
-                            }
-                        }
-
-                        awaitClose {
-                            eventJob.cancel()
-                            emissionJob.cancel()
-                        }
+                        awaitClose { eventJob.cancel() }
                     }
                     // Buffer strategy: DROP_OLDEST prevents latency accumulation
                     .buffer(

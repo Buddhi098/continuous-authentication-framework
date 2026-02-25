@@ -1,41 +1,17 @@
 package com.ca.continuousauth.featuremodalities.featurepipeline
 
-import com.ca.continuousauth.config.AuthConfigManager
-import com.ca.continuousauth.featuremodalities.dataprocessing.denoisers.SensorDenoiser
-import com.ca.continuousauth.featuremodalities.dataprocessing.denoisers.denoisePipeline
-import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.FeatureExtractor
-import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.featurePipeline
-import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.featureextractorcollection.MeanFeatureExtractor
-import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.featureextractorcollection.SumFeatureExtractor
-import com.ca.continuousauth.featuremodalities.dataprocessing.windowing.windowedFlow
 import com.ca.continuousauth.utils.Logger
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 
-/**
- * Full pipeline to process touch dynamics features as a Flow.
- */
+/** Full pipeline to process touch dynamics features as a Flow. */
 fun collectTouchDynamicFeature(
-    collector: () -> Flow<Pair<Long, List<Float>>>,
-    dispatcher: CoroutineDispatcher = Dispatchers.Default
-): Flow<List<Float>> {
+        collector: () -> Flow<Pair<Long, List<Float>>>,
+        dispatcher: CoroutineDispatcher = Dispatchers.Default
+): Flow<Pair<Long, List<Float>>> {
 
-    val touchWindowSize: Int = AuthConfigManager.config.touchWindowSize
-    val touchWindowOverlap: Double = AuthConfigManager.config.touchWindowOverlapRatio
-
-    val denoisers: List<SensorDenoiser> = emptyList()
-
-    val featureExtractors: List<FeatureExtractor> = listOf(
-        SumFeatureExtractor()
-    )
-
-    return collector()
-        .windowedFlow(touchWindowSize, touchWindowOverlap)
-        .denoisePipeline(denoisers)
-        .featurePipeline(featureExtractors)
-        .flowOn(dispatcher)
-        .catch { ex ->
-            Logger.e("Error in touch dynamics feature flow", ex)
-        }
+    return collector().flowOn(dispatcher).catch { ex ->
+        Logger.e("Error in touch dynamics feature flow", ex)
+    }
 }

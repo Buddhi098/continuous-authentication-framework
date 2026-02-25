@@ -145,22 +145,41 @@ class EnrollmentManager(
     ): Float? {
         // 1. Gather scores (reuse ArrayList to avoid resizing overhead)
         val scores = ArrayList<Float>(validationSet.size)
+        var nullCount = 0
+        var nanInfCount = 0
         for (vector in validationSet) {
-            try {
-                val score = authModel.inferScore(vector)
-                // Optional: Sanity check for NaNs or Infinity
-                if (!score?.isNaN()!! && !score.isInfinite()) {
-                    scores.add(score)
-                }
-            } catch (e: Exception) {
-                // Log error if necessary, but keep stream processing
+            val score = authModel.inferScore(vector)
+            if (score == null) {
+                nullCount++
+                continue
             }
+            if (score.isNaN() || score.isInfinite()) {
+                nanInfCount++
+                continue
+            }
+            scores.add(score)
         }
 
-        if (scores.size < 20) return null
+        Logger.d(
+                "Threshold calc: validationSet=${validationSet.size}, validScores=${scores.size}, " +
+                        "nullInferences=$nullCount, nanOrInf=$nanInfCount"
+        )
+
+        if (scores.size < 20) {
+            Logger.e(
+                    "Threshold calculation failed: only ${scores.size} valid scores (need 20). " +
+                            "null=$nullCount, nanOrInf=$nanInfCount"
+            )
+            return null
+        }
 
         // 2. Sort In-Place (Required for both IQR and Percentile)
         scores.sort()
+
+        Logger.d(
+                "Threshold scores: min=${scores.first()}, max=${scores.last()}, " +
+                        "median=${scores[scores.size / 2]}"
+        )
 
         // 3. Calculate IQR (Interquartile Range)
         // We treat the sorted list as our distribution
@@ -190,7 +209,13 @@ class EnrollmentManager(
         }
 
         val validCount = (validEndIndex - validStartIndex) + 1
-        if (validCount < 10) return null // Too few valid samples after filtering
+        if (validCount < 10) {
+            Logger.e(
+                    "Threshold calculation failed: only $validCount valid scores after IQR filtering (need 10). " +
+                            "IQR=$iqr, lowerFence=$lowerFence, upperFence=$upperFence"
+            )
+            return null
+        }
 
         // 5. Calculate Threshold on the "Virtual" Filtered Set
         // We calculate which index in the FULL sorted list corresponds to the percentile

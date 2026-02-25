@@ -164,9 +164,183 @@ fun EnrollmentScreen(viewModel: EnrollmentViewModel, targetSamples: Int = 100) {
                                                                 MaterialTheme.colorScheme
                                                                         .onSurfaceVariant
                                                 )
+
+                                                // Auth Mode Indicator
+                                                val isFusionReady by
+                                                        viewModel.isFusionModelReady
+                                                                .collectAsState()
+                                                Surface(
+                                                        color =
+                                                                if (isFusionReady)
+                                                                        SuccessDark.copy(
+                                                                                alpha = 0.15f
+                                                                        )
+                                                                else
+                                                                        MaterialTheme.colorScheme
+                                                                                .primary.copy(
+                                                                                alpha = 0.15f
+                                                                        ),
+                                                        shape = RoundedCornerShape(16.dp),
+                                                        modifier = Modifier.padding(top = 4.dp)
+                                                ) {
+                                                        Text(
+                                                                text =
+                                                                        if (isFusionReady)
+                                                                                "Multi-modal (Sensor + Touch)"
+                                                                        else "Sensor-only",
+                                                                modifier =
+                                                                        Modifier.padding(
+                                                                                horizontal = 12.dp,
+                                                                                vertical = 4.dp
+                                                                        ),
+                                                                style =
+                                                                        MaterialTheme.typography
+                                                                                .labelSmall,
+                                                                color =
+                                                                        if (isFusionReady)
+                                                                                SuccessDark
+                                                                        else
+                                                                                MaterialTheme
+                                                                                        .colorScheme
+                                                                                        .primary,
+                                                                fontWeight = FontWeight.Medium
+                                                        )
+                                                }
                                         }
                                 }
 
+                                // --- Threshold Info ---
+                                if (threshold > 0f) {
+                                        val fusionThreshold by
+                                                viewModel.fusionThreshold.collectAsState()
+                                        val isFusionReady by
+                                                viewModel.isFusionModelReady.collectAsState()
+
+                                        Column(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                                Text(
+                                                        text = "Thresholds",
+                                                        style = MaterialTheme.typography.titleSmall,
+                                                        fontWeight = FontWeight.Bold
+                                                )
+                                                Row(
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        horizontalArrangement =
+                                                                Arrangement.spacedBy(8.dp)
+                                                ) {
+                                                        // Sensor Threshold
+                                                        Surface(
+                                                                color =
+                                                                        MaterialTheme.colorScheme
+                                                                                .surfaceVariant
+                                                                                .copy(alpha = 0.5f),
+                                                                shape = RoundedCornerShape(8.dp),
+                                                                modifier = Modifier.weight(1f)
+                                                        ) {
+                                                                Column(
+                                                                        modifier =
+                                                                                Modifier.padding(
+                                                                                        12.dp
+                                                                                ),
+                                                                        horizontalAlignment =
+                                                                                Alignment
+                                                                                        .CenterHorizontally
+                                                                ) {
+                                                                        Text(
+                                                                                text =
+                                                                                        "%.4f".format(
+                                                                                                threshold
+                                                                                        ),
+                                                                                style =
+                                                                                        MaterialTheme
+                                                                                                .typography
+                                                                                                .titleMedium,
+                                                                                fontWeight =
+                                                                                        FontWeight
+                                                                                                .Bold,
+                                                                                color =
+                                                                                        MaterialTheme
+                                                                                                .colorScheme
+                                                                                                .primary
+                                                                        )
+                                                                        Text(
+                                                                                text = "Sensor Only",
+                                                                                style =
+                                                                                        MaterialTheme
+                                                                                                .typography
+                                                                                                .labelSmall,
+                                                                                color =
+                                                                                        MaterialTheme
+                                                                                                .colorScheme
+                                                                                                .onSurfaceVariant
+                                                                        )
+                                                                }
+                                                        }
+
+                                                        // Fusion Threshold
+                                                        Surface(
+                                                                color =
+                                                                        MaterialTheme.colorScheme
+                                                                                .surfaceVariant
+                                                                                .copy(alpha = 0.5f),
+                                                                shape = RoundedCornerShape(8.dp),
+                                                                modifier = Modifier.weight(1f)
+                                                        ) {
+                                                                Column(
+                                                                        modifier =
+                                                                                Modifier.padding(
+                                                                                        12.dp
+                                                                                ),
+                                                                        horizontalAlignment =
+                                                                                Alignment
+                                                                                        .CenterHorizontally
+                                                                ) {
+                                                                        Text(
+                                                                                text =
+                                                                                        if (isFusionReady &&
+                                                                                                        fusionThreshold >
+                                                                                                                0f
+                                                                                        )
+                                                                                                "%.4f".format(
+                                                                                                        fusionThreshold
+                                                                                                )
+                                                                                        else "N/A",
+                                                                                style =
+                                                                                        MaterialTheme
+                                                                                                .typography
+                                                                                                .titleMedium,
+                                                                                fontWeight =
+                                                                                        FontWeight
+                                                                                                .Bold,
+                                                                                color =
+                                                                                        if (isFusionReady
+                                                                                        )
+                                                                                                MaterialTheme
+                                                                                                        .colorScheme
+                                                                                                        .primary
+                                                                                        else
+                                                                                                MaterialTheme
+                                                                                                        .colorScheme
+                                                                                                        .onSurfaceVariant
+                                                                        )
+                                                                        Text(
+                                                                                text = "Multi-Model",
+                                                                                style =
+                                                                                        MaterialTheme
+                                                                                                .typography
+                                                                                                .labelSmall,
+                                                                                color =
+                                                                                        MaterialTheme
+                                                                                                .colorScheme
+                                                                                                .onSurfaceVariant
+                                                                        )
+                                                                }
+                                                        }
+                                                }
+                                        }
+                                }
                                 // --- Continuous Learning Card ---
                                 val storedVectorCount by
                                         viewModel.storedVectorCount.collectAsState()

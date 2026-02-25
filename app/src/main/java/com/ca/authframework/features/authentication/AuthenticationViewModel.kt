@@ -18,6 +18,7 @@ class AuthenticationViewModel(
     /* Auth state                    */
     /* ----------------------------- */
     val isCheckpointExists: StateFlow<Boolean> = auth.isCheckpointExists
+    val isFusionModelReady: StateFlow<Boolean> = auth.isFusionModelReady
 
     /* ----------------------------- */
     /* UI State                      */

@@ -11,17 +11,15 @@ private constructor(
         val enrollmentSamples: Int,
         val windowSize: Int,
         val windowOverlapRatio: Double,
-        val touchWindowSize: Int,
-        val touchWindowOverlapRatio: Double,
         val shouldLogFeatureVector: Boolean,
-
-        /* ------------------------------------------------------------------
-         * 2. Model Training
-         * ------------------------------------------------------------------ */
-        val modelFileName: String,
+        val sensorModelFileName: String,
+        val fusionModelFileName: String,
         val trainingEpochs: Int,
         val trainingBatchSize: Int,
-        val featureDimension: Int,
+        val sensorFeatureDimension: Int,
+        val fusionFeatureDimension: Int,
+        val sensorScoreWeight: Float,
+        val fusionScoreWeight: Float,
 
         // Train / validation split
         val trainValidationRatio: Double,
@@ -55,13 +53,13 @@ private constructor(
         require(enrollmentSamples > 0) { "enrollmentSamples must be > 0" }
         require(windowSize > 0) { "windowSize must be > 0" }
         require(windowOverlapRatio in 0.0..0.9) { "windowOverlapRatio must be between 0.0 and 0.9" }
-        require(touchWindowSize > 0) { "touchWindowSize must be > 0" }
-        require(touchWindowOverlapRatio in 0.0..0.9) {
-            "touchWindowOverlapRatio must be between 0.0 and 0.9"
-        }
         require(trainingEpochs > 0) { "trainingEpochs must be > 0" }
         require(trainingBatchSize > 0) { "trainingBatchSize must be > 0" }
-        require(featureDimension > 0) { "featureDimension must be > 0" }
+        require(sensorFeatureDimension > 0) { "sensorFeatureDimension must be > 0" }
+        require(fusionFeatureDimension > 0) { "fusionFeatureDimension must be > 0" }
+        require(sensorScoreWeight + fusionScoreWeight == 1.0f) { "Weights must sum to 1.0" }
+        require(sensorScoreWeight in 0.0f..1.0f) { "sensorScoreWeight must be between 0.0 and 1.0" }
+        require(fusionScoreWeight in 0.0f..1.0f) { "fusionScoreWeight must be between 0.0 and 1.0" }
         require(trainValidationRatio in 0.5..0.95) {
             "trainValidationRatio must be between 0.5 and 0.95"
         }
@@ -74,20 +72,22 @@ private constructor(
     class Builder {
 
         /* -------------------- Data Collection -------------------- */
-        private var sampleCollectionFrequencyHz: Int = 50
+        private var sampleCollectionFrequencyHz: Int = 128
         private var enrollmentSamples: Int = 2000
-        private var windowSize: Int = 128
+        private var windowSize: Int = 64
         private var windowOverlapRatio: Double = 0.5
-        private var touchWindowSize: Int = 50
-        private var touchWindowOverlapRatio: Double = 0.0
         private var shouldLogFeatureVector: Boolean = true
         private var maxStoredAuthenticatedVectors: Int = 2000
 
         /* -------------------- Model Training --------------------- */
-        private var modelFileName: String = "model.tflite"
+        private var sensorModelFileName: String = "sensor_model.tflite"
+        private var fusionModelFileName: String = "fusion_model.tflite"
         private var trainingEpochs: Int = 300
         private var trainingBatchSize: Int = 32
-        private var featureDimension: Int = 34
+        private var sensorFeatureDimension: Int = 20 // linearAccel(10) + gyro(10)
+        private var fusionFeatureDimension: Int = 34 // sensor(20) + touch(14)
+        private var sensorScoreWeight: Float = 0.5f
+        private var fusionScoreWeight: Float = 0.5f
         private var trainValidationRatio: Double = 0.8
         private var enrollmentDataFilterRatio: Double = 0.1
 
@@ -116,17 +116,20 @@ private constructor(
         fun windowSize(value: Int) = apply { windowSize = value }
 
         fun windowOverlapRatio(value: Double) = apply { windowOverlapRatio = value }
-        fun touchWindowSize(value: Int) = apply { touchWindowSize = value }
-        fun touchWindowOverlapRatio(value: Double) = apply { touchWindowOverlapRatio = value }
         fun shouldLogFeatureVector(value: Boolean) = apply { shouldLogFeatureVector = value }
 
-        fun modelFileName(value: String) = apply { modelFileName = value }
+        fun sensorModelFileName(value: String) = apply { sensorModelFileName = value }
+        fun fusionModelFileName(value: String) = apply { fusionModelFileName = value }
 
         fun trainingEpochs(value: Int) = apply { trainingEpochs = value }
 
         fun trainingBatchSize(value: Int) = apply { trainingBatchSize = value }
 
-        fun featureDimension(value: Int) = apply { featureDimension = value }
+        fun sensorFeatureDimension(value: Int) = apply { sensorFeatureDimension = value }
+        fun fusionFeatureDimension(value: Int) = apply { fusionFeatureDimension = value }
+
+        fun sensorScoreWeight(value: Float) = apply { sensorScoreWeight = value }
+        fun fusionScoreWeight(value: Float) = apply { fusionScoreWeight = value }
 
         fun trainValidationRatio(value: Double) = apply { trainValidationRatio = value }
 
@@ -159,13 +162,15 @@ private constructor(
                         enrollmentSamples = enrollmentSamples,
                         windowSize = windowSize,
                         windowOverlapRatio = windowOverlapRatio,
-                        touchWindowSize = touchWindowSize,
-                        touchWindowOverlapRatio = touchWindowOverlapRatio,
                         shouldLogFeatureVector = shouldLogFeatureVector,
-                        modelFileName = modelFileName,
+                        sensorModelFileName = sensorModelFileName,
+                        fusionModelFileName = fusionModelFileName,
                         trainingEpochs = trainingEpochs,
                         trainingBatchSize = trainingBatchSize,
-                        featureDimension = featureDimension,
+                        sensorFeatureDimension = sensorFeatureDimension,
+                        fusionFeatureDimension = fusionFeatureDimension,
+                        sensorScoreWeight = sensorScoreWeight,
+                        fusionScoreWeight = fusionScoreWeight,
                         trainValidationRatio = trainValidationRatio,
                         enrollmentDataFilterRatio = enrollmentDataFilterRatio,
                         sigTrain = sigTrain,
