@@ -19,5 +19,7 @@ data class EvaluationRecord(
         val evaluatorLabel: EvaluatorLabel,
         val avgConfidence: Double,
         val tdtAccuracy: Float,
-        val samplesProcessed: Int
+        val samplesProcessed: Int,
+        val averageScore: Double = 0.0,
+        val medianScore: Double = 0.0
 )

@@ -24,6 +24,8 @@ class EvaluationRepository(context: Context) {
         private const val KEY_AVG_CONFIDENCE = "avgConfidence"
         private const val KEY_TDT_ACCURACY = "tdtAccuracy"
         private const val KEY_SAMPLES_PROCESSED = "samplesProcessed"
+        private const val KEY_AVERAGE_SCORE = "averageScore"
+        private const val KEY_MEDIAN_SCORE = "medianScore"
     }
 
     /** Save a new evaluation record to storage. */
@@ -83,6 +85,8 @@ class EvaluationRepository(context: Context) {
             put(KEY_AVG_CONFIDENCE, record.avgConfidence)
             put(KEY_TDT_ACCURACY, record.tdtAccuracy.toDouble())
             put(KEY_SAMPLES_PROCESSED, record.samplesProcessed)
+            put(KEY_AVERAGE_SCORE, record.averageScore)
+            put(KEY_MEDIAN_SCORE, record.medianScore)
         }
     }
 
@@ -94,7 +98,9 @@ class EvaluationRepository(context: Context) {
                 evaluatorLabel = EvaluatorLabel.valueOf(obj.getString(KEY_EVALUATOR_LABEL)),
                 avgConfidence = obj.getDouble(KEY_AVG_CONFIDENCE),
                 tdtAccuracy = obj.getDouble(KEY_TDT_ACCURACY).toFloat(),
-                samplesProcessed = obj.getInt(KEY_SAMPLES_PROCESSED)
+                samplesProcessed = obj.getInt(KEY_SAMPLES_PROCESSED),
+                averageScore = obj.optDouble(KEY_AVERAGE_SCORE, 0.0),
+                medianScore = obj.optDouble(KEY_MEDIAN_SCORE, 0.0)
         )
     }
 }

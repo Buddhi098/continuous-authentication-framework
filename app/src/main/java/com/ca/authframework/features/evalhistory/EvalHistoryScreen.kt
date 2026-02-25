@@ -228,6 +228,15 @@ private fun EvaluationRecordCard(record: EvaluationRecord, onDelete: () -> Unit)
                 )
                 MetricItem(label = "Samples", value = record.samplesProcessed.toString())
             }
+
+            // Score Metrics Row
+            Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                MetricItem(label = "Average Score", value = "%.4f".format(record.averageScore))
+                MetricItem(label = "Median Score", value = "%.4f".format(record.medianScore))
+            }
         }
     }
 }

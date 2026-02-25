@@ -146,7 +146,9 @@ class EvaluationViewModel(
                             evaluatorLabel = currentEvaluatorLabel,
                             avgConfidence = authPercentage,
                             tdtAccuracy = tdtAccuracy,
-                            samplesProcessed = processedSamples
+                            samplesProcessed = processedSamples,
+                            averageScore = averageScore,
+                            medianScore = medianScore
                     )
             repository.saveRecord(record)
         }
