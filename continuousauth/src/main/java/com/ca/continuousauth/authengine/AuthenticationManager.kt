@@ -30,6 +30,7 @@ class AuthenticationManager(
     private val vectorLock = Mutex()
 
     private var cachedThreshold: Float? = null
+    private var cachedEmaScore: Float? = null
     // Volatile for lightweight thread visibility, though mostly accessed via main flow
     @Volatile private var isModelLoaded: Boolean = false
 
@@ -90,9 +91,17 @@ class AuthenticationManager(
 
         val rawScore = authModel.inferScore(featureVector)
 
-        // Optional: Denoise if needed. Uncomment if logic is restored.
-        // val score = rawScore?.let { adaptiveScoreDenoiser.denoise(it) }
-        val score = rawScore
+        // Implement Exponential Moving Average (EMA) smoothing
+        val alpha = 0.3f // Smoothing factor
+        val emaScore =
+                if (rawScore != null) {
+                    val previous = cachedEmaScore ?: rawScore
+                    val smoothed = alpha * rawScore + (1.0f - alpha) * previous
+                    cachedEmaScore = smoothed
+                    smoothed
+                } else null
+
+        val score = emaScore
 
         val durationMs = (System.nanoTime() - startTime) / 1_000_000.0
 

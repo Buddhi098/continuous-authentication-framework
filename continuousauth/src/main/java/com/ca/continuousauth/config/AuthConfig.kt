@@ -74,8 +74,8 @@ private constructor(
         /* -------------------- Data Collection -------------------- */
         private var sampleCollectionFrequencyHz: Int = 128
         private var enrollmentSamples: Int = 2000
-        private var windowSize: Int = 64
-        private var windowOverlapRatio: Double = 0.5
+        private var windowSize: Int = 128
+        private var windowOverlapRatio: Double = 0.75
         private var shouldLogFeatureVector: Boolean = true
         private var maxStoredAuthenticatedVectors: Int = 2000
 
@@ -84,8 +84,8 @@ private constructor(
         private var fusionModelFileName: String = "fusion_model.tflite"
         private var trainingEpochs: Int = 300
         private var trainingBatchSize: Int = 32
-        private var sensorFeatureDimension: Int = 20 // linearAccel(10) + gyro(10)
-        private var fusionFeatureDimension: Int = 34 // sensor(20) + touch(14)
+        private var sensorFeatureDimension: Int = 57 // linearAccel(19) + gyro(19) + totalAccel(19)
+        private var fusionFeatureDimension: Int = 71 // sensor(57) + touch(14)
         private var sensorScoreWeight: Float = 0.5f
         private var fusionScoreWeight: Float = 0.5f
         private var trainValidationRatio: Double = 0.8

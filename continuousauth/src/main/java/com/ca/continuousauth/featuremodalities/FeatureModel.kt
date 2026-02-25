@@ -6,9 +6,11 @@ import com.ca.continuousauth.featuremodalities.dataprocessing.scalers.Scaler
 import com.ca.continuousauth.featuremodalities.featurefusion.FusedFeatureBuilder2D
 import com.ca.continuousauth.featuremodalities.featurepipeline.collectProcessedGyroFeatures
 import com.ca.continuousauth.featuremodalities.featurepipeline.collectProcessedLinearAccelFeatures
+import com.ca.continuousauth.featuremodalities.featurepipeline.collectProcessedTotalAccelFeatures
 import com.ca.continuousauth.featuremodalities.featurepipeline.collectTouchDynamicFeature
 import com.ca.continuousauth.featuremodalities.rawdatacollectors.GyroscopeDataCollector
 import com.ca.continuousauth.featuremodalities.rawdatacollectors.LinearAccelerometerDataCollector
+import com.ca.continuousauth.featuremodalities.rawdatacollectors.TotalAccelerometerDataCollector
 import com.ca.continuousauth.featuremodalities.rawdatacollectors.TouchDataCollector
 import com.ca.continuousauth.states.TouchEventData
 import com.ca.continuousauth.utils.Logger
@@ -67,6 +69,13 @@ class FeatureModel {
                                 dispatcher = dispatcher
                         )
 
+                val totalAccelCollector =
+                        TotalAccelerometerDataCollector(
+                                context = context,
+                                frequencyHz = AuthConfigManager.config.sampleCollectionFrequencyHz,
+                                dispatcher = dispatcher
+                        )
+
                 val touchCollector =
                         TouchDataCollector(
                                 touchEventFlow = touchEventFlow,
@@ -88,15 +97,17 @@ class FeatureModel {
                                 dispatcher = dispatcher
                         )
 
+                val totalAccelFlow =
+                        collectProcessedTotalAccelFeatures(
+                                collector = { totalAccelCollector.start() },
+                                dispatcher = dispatcher
+                        )
+
                 val touchFlow =
                         collectTouchDynamicFeature(
                                 collector = { touchCollector.start() },
                                 dispatcher = dispatcher
                         )
-
-                // totalAccelFlow is intentionally omitted from collection as it is not currently
-                // used in
-                // the fusion pipeline.
 
                 /* ------------------------------------------------------------------
                  * Time-Synchronized Dual Feature Fusion (Latch-based)
@@ -113,9 +124,10 @@ class FeatureModel {
                 var lastFusedTouchFeatures: List<Float>? = null
 
                 val dualFlow =
-                        combine(linearAccelFlow, gyroFlow, touchFlow) {
+                        combine(linearAccelFlow, gyroFlow, totalAccelFlow, touchFlow) {
                                         linearAccel: List<Float>,
                                         gyro: List<Float>,
+                                        totalAccel: List<Float>,
                                         touchPair: Pair<Long, List<Float>> ->
                                         val (touchTime, touchFeatures) = touchPair
 
@@ -123,7 +135,8 @@ class FeatureModel {
                                         val sensorMap =
                                                 mapOf(
                                                         "linearAccel" to listOf(linearAccel),
-                                                        "gyro" to listOf(gyro)
+                                                        "gyro" to listOf(gyro),
+                                                        "totalAccel" to listOf(totalAccel)
                                                 )
                                         val sensorVec =
                                                 FusedFeatureBuilder2D.buildFusedMatrix(sensorMap)
@@ -156,6 +169,7 @@ class FeatureModel {
                                                                 "linearAccel" to
                                                                         listOf(linearAccel),
                                                                 "gyro" to listOf(gyro),
+                                                                "totalAccel" to listOf(totalAccel),
                                                                 "touch" to
                                                                         listOf(
                                                                                 latchedTouchFeatures!!

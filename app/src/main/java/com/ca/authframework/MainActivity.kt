@@ -41,7 +41,7 @@ object ContinuousAuthManager {
 class MainActivity : ComponentActivity() {
 
     companion object {
-        private const val TARGET_SAMPLES = 200
+        private const val TARGET_SAMPLES = 1500
     }
 
     private val touchEventFlow =
