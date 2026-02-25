@@ -60,7 +60,7 @@ class ContinuousAuth(
     private val featureModel by lazy { FeatureModel() }
 
     // --- Sensor Pipeline ---
-    private val sensorScaler by lazy { StandardScaler(context) }
+    private val sensorScaler by lazy { StandardScaler(context, "sensor_standard_scaler_prefs") }
     private val sensorAuthModel by lazy {
         AuthModel(
                 context = context,
@@ -88,7 +88,7 @@ class ContinuousAuth(
     }
 
     // --- Fusion Pipeline ---
-    private val fusionScaler by lazy { StandardScaler(context) }
+    private val fusionScaler by lazy { StandardScaler(context, "fusion_standard_scaler_prefs") }
     private val fusionAuthModel by lazy {
         AuthModel(
                 context = context,

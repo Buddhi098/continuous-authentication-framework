@@ -12,12 +12,11 @@ import kotlin.math.sqrt
  *
  * Thread-safe: All public methods are synchronized.
  */
-class StandardScaler(private val context: Context) : Scaler {
+class StandardScaler(private val context: Context, private val prefsName: String) : Scaler {
 
     private var mean: FloatArray? = null
     private var std: FloatArray? = null
 
-    private val PREFS_NAME = "standard_scaler_prefs"
     private val KEY_MEAN = "mean"
     private val KEY_STD = "std"
 
@@ -118,7 +117,7 @@ class StandardScaler(private val context: Context) : Scaler {
      * logging a warning and resetting state.
      */
     private fun loadFromPrefs() {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val prefs = context.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
         val meanStr = prefs.getString(KEY_MEAN, null)
         val stdStr = prefs.getString(KEY_STD, null)
 
@@ -152,7 +151,7 @@ class StandardScaler(private val context: Context) : Scaler {
 
     /** Save mean and std to SharedPreferences. */
     private fun saveToPrefs() {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val prefs = context.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
         val editor = prefs.edit()
         editor.putString(KEY_MEAN, mean?.joinToString(","))
         editor.putString(KEY_STD, std?.joinToString(","))

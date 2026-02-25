@@ -9,12 +9,11 @@ import com.ca.continuousauth.utils.Logger
  *
  * Thread-safe: All public methods are synchronized.
  */
-class MinMaxScaler(private val context: Context) : Scaler {
+class MinMaxScaler(private val context: Context, private val prefsName: String) : Scaler {
 
     private var min: FloatArray? = null
     private var max: FloatArray? = null
 
-    private val PREFS_NAME = "minmax_scaler_prefs"
     private val KEY_MIN = "min"
     private val KEY_MAX = "max"
 
@@ -109,7 +108,7 @@ class MinMaxScaler(private val context: Context) : Scaler {
      * logging a warning and resetting state.
      */
     private fun loadFromPrefs() {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val prefs = context.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
         val minStr = prefs.getString(KEY_MIN, null)
         val maxStr = prefs.getString(KEY_MAX, null)
 
@@ -141,7 +140,7 @@ class MinMaxScaler(private val context: Context) : Scaler {
 
     /** Save min and max to SharedPreferences. */
     private fun saveToPrefs() {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val prefs = context.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
         val editor = prefs.edit()
         editor.putString(KEY_MIN, min?.joinToString(","))
         editor.putString(KEY_MAX, max?.joinToString(","))
