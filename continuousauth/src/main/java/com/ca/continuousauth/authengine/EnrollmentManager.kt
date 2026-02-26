@@ -141,7 +141,7 @@ class EnrollmentManager(
     fun calculateThreshold(
             validationSet: List<List<Float>>,
             percentile: Float = 90f,
-            strictness: Float = 0.9f // Standard IQR multiplier (1.5 is standard, 3.0 is loose)
+            strictness: Float = 1.5f // Standard IQR multiplier (1.5 is standard, 3.0 is loose)
     ): Float? {
         // 1. Gather scores (reuse ArrayList to avoid resizing overhead)
         val scores = ArrayList<Float>(validationSet.size)

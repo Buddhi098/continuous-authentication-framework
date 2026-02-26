@@ -4,8 +4,8 @@ import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.
 import kotlin.math.*
 
 /**
- * Lightweight Sensor Feature Extractor (10 Features) Optimized for Continuous Authentication &
- * TFLite deployment.
+ * Lightweight Sensor Feature Extractor (14 Features - Pose Invariant) Optimized for Continuous
+ * Authentication & TFLite deployment.
  */
 class SensorFeatureExtractor(private val samplingRate: Int = 50) : FeatureExtractor {
 
@@ -15,9 +15,6 @@ class SensorFeatureExtractor(private val samplingRate: Int = 50) : FeatureExtrac
         val n = window.size
         if (n < 2) return emptyList()
 
-        // -----------------------------
-        // 1. Unpack Sensor Axes
-        // -----------------------------
         val x = FloatArray(n)
         val y = FloatArray(n)
         val z = FloatArray(n)
@@ -29,82 +26,72 @@ class SensorFeatureExtractor(private val samplingRate: Int = 50) : FeatureExtrac
             z[i] = v.getOrElse(2) { 0f }
         }
 
-        val axes = listOf(x, y, z)
+        // -----------------------------
+        // 1. Pose-Invariant Metrics
+        // -----------------------------
+        // SVM (Signal Vector Magnitude)
+        val svm = FloatArray(n) { i -> sqrt(x[i] * x[i] + y[i] * y[i] + z[i] * z[i]) }
+
+        // Jerk Magnitude (Derivative of Acceleration)
+        val jerk = FloatArray(n)
+        jerk[0] = 0f // First element has no derivative
+        for (i in 1 until n) {
+            val dx = x[i] - x[i - 1]
+            val dy = y[i] - y[i - 1]
+            val dz = z[i] - z[i - 1]
+            jerk[i] = sqrt(dx * dx + dy * dy + dz * dz)
+        }
+
+        val signals = listOf(svm, jerk)
 
         // -----------------------------
         // 2. Time-Domain Features
         // -----------------------------
-        val std = axes.map { standardDeviation(it) }
-        val rms = axes.map { rootMeanSquare(it) }
-
-        val skewness = axes.map { skewness(it) }
-        val kurtosis = axes.map { kurtosis(it) }
-        val energy = axes.map { energy(it) }
+        val std = signals.map { standardDeviation(it) }
+        val rms = signals.map { rootMeanSquare(it) }
+        val skewness = signals.map { skewness(it) }
+        val kurtosis = signals.map { kurtosis(it) }
+        val energy = signals.map { energy(it) }
 
         // -----------------------------
         // 3. Frequency-Domain Features
         // -----------------------------
-        val centeredAxes = axes.map { center(it) }
-        val fftMagnitudes = centeredAxes.map { computeFFTMagnitude(it) }
+        val centeredSignals = signals.map { center(it) }
+        val fftMagnitudes = centeredSignals.map { computeFFTMagnitude(it) }
         val fftFreqs = rfftFreq(n, dt)
 
         val dominantFreq =
-                fftMagnitudes
-                        .map { mags ->
-                            val idx = mags.indices.maxByOrNull { mags[it] } ?: 0
-                            fftFreqs[idx]
-                        }
-                        .average()
-                        .toFloat()
+                fftMagnitudes.map { mags ->
+                    val idx = mags.indices.maxByOrNull { mags[it] } ?: 0
+                    fftFreqs[idx]
+                }
 
         val spectralEntropy =
-                fftMagnitudes
-                        .map { mags ->
-                            val sum = mags.sum() + 1e-8f
-                            var entropy = 0f
-                            for (m in mags) {
-                                val p = m / sum
-                                if (p > 0f) entropy += p * ln(p)
-                            }
-                            -entropy
-                        }
-                        .average()
-                        .toFloat()
+                fftMagnitudes.map { mags ->
+                    val sum = mags.sum() + 1e-8f
+                    var entropy = 0f
+                    for (m in mags) {
+                        val p = m / sum
+                        if (p > 0f) entropy += p * ln(p)
+                    }
+                    -entropy
+                }
 
         // -----------------------------
-        // 4. Magnitude (SVM) Features
+        // 4. Final Feature Vector (14)
         // -----------------------------
-        val svm = FloatArray(n) { i -> sqrt(x[i] * x[i] + y[i] * y[i] + z[i] * z[i]) }
+        val features = ArrayList<Float>(14)
 
-        val svmMean = svm.average().toFloat()
-
-        // -----------------------------
-        // 5. Cross-Axis Correlation
-        // -----------------------------
-        val corrXY = correlation(x, y)
-        val corrXZ = correlation(x, z)
-        val corrYZ = correlation(y, z)
-        val meanCorr = (corrXY + corrXZ + corrYZ) / 3f
-
-        // -----------------------------
-        // 6. Final Feature Vector (19)
-        // -----------------------------
-        val features = ArrayList<Float>(19)
-
-        // 3 axes * 5 time-domain = 15 features
+        // 2 signals * 5 time-domain = 10 features
         features.addAll(std)
         features.addAll(rms)
         features.addAll(skewness)
         features.addAll(kurtosis)
         features.addAll(energy)
 
-        // Frequency features (2)
-        features.add(dominantFreq)
-        features.add(spectralEntropy)
-
-        // Global features (2)
-        features.add(svmMean)
-        features.add(meanCorr)
+        // 2 signals * 2 frequency-domain = 4 features
+        features.addAll(dominantFreq)
+        features.addAll(spectralEntropy)
 
         return features
     }
@@ -152,27 +139,6 @@ class SensorFeatureExtractor(private val samplingRate: Int = 50) : FeatureExtrac
         val m4 = data.sumOf { (it - mean).pow(4) } / n
         if (m2 == 0.0) return 0f
         return (m4 / (m2.pow(2)) - 3.0).toFloat()
-    }
-
-    private fun correlation(a: FloatArray, b: FloatArray): Float {
-        if (a.size != b.size) return 0f
-        val meanA = a.average()
-        val meanB = b.average()
-
-        var num = 0.0
-        var denA = 0.0
-        var denB = 0.0
-
-        for (i in a.indices) {
-            val da = a[i] - meanA
-            val db = b[i] - meanB
-            num += da * db
-            denA += da * da
-            denB += db * db
-        }
-
-        val denom = sqrt(denA) * sqrt(denB)
-        return if (denom == 0.0) 0f else (num / denom).toFloat()
     }
 
     // =====================================================

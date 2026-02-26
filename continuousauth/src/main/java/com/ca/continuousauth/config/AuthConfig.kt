@@ -84,8 +84,8 @@ private constructor(
         private var fusionModelFileName: String = "fusion_model.tflite"
         private var trainingEpochs: Int = 300
         private var trainingBatchSize: Int = 32
-        private var sensorFeatureDimension: Int = 57 // linearAccel(19) + gyro(19) + totalAccel(19)
-        private var fusionFeatureDimension: Int = 71 // sensor(57) + touch(14)
+        private var sensorFeatureDimension: Int = 42 // linearAccel(14) + gyro(14) + totalAccel(14)
+        private var fusionFeatureDimension: Int = 56 // sensor(42) + touch(14)
         private var sensorScoreWeight: Float = 0.5f
         private var fusionScoreWeight: Float = 0.5f
         private var trainValidationRatio: Double = 0.8
