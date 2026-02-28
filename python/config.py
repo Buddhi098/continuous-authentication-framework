@@ -17,7 +17,7 @@ FUSION_TFLITE_FILE_PATH = ASSETS_DIR / "fusion_model.tflite"
 # -------------------------------------------------------------------------
 # Default Model Hyperparameters
 # -------------------------------------------------------------------------
-SENSOR_INPUT_DIM = 42  # linearAccel(14) + gyro(14) + totalAccel(14)
+SENSOR_INPUT_DIM = 28  # linearAccel(14) + gyro(14) + totalAccel(14)
 FUSION_INPUT_DIM = 56  # sensor(42) + touch(14)
 
 # Backward compatibility or general default

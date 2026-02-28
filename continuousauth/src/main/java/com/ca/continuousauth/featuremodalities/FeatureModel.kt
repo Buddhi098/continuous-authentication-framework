@@ -121,7 +121,6 @@ class FeatureModel {
                 var latchedTouchFeatures: List<Float>? = null
                 var latchedTouchTime: Long = -1L
                 var latchConsumed = true // starts true ⇒ nothing to consume yet
-                var lastFusedTouchFeatures: List<Float>? = null
 
                 val dualFlow =
                         combine(linearAccelFlow, gyroFlow, totalAccelFlow, touchFlow) {
@@ -145,9 +144,7 @@ class FeatureModel {
                                         // --- Latch logic ---
                                         val isTouchNonZero = touchFeatures.any { it != 0f }
 
-                                        if (isTouchNonZero &&
-                                                        touchFeatures != lastFusedTouchFeatures
-                                        ) {
+                                        if (isTouchNonZero && touchTime != latchedTouchTime) {
                                                 // A fresh, unique non-zero touch just arrived —
                                                 // latch it
                                                 latchedTouchFeatures = touchFeatures
@@ -181,10 +178,8 @@ class FeatureModel {
                                                                 )
                                                                 .first()
                                                 emittedTouchTime = latchedTouchTime
-                                                latchConsumed =
-                                                        true // consume the latch — one fusion per
+                                                latchConsumed = true // consume the latch — one fusion per
                                                 // touch
-                                                lastFusedTouchFeatures = latchedTouchFeatures
                                                 Logger.d(
                                                         "FusionPipeline: Built fusion vector (dim=${fusionVec.size}, touchTime=$emittedTouchTime)"
                                                 )

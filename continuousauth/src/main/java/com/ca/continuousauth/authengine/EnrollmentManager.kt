@@ -220,7 +220,7 @@ class EnrollmentManager(
         // 5. Calculate Threshold on the "Virtual" Filtered Set
         // We calculate which index in the FULL sorted list corresponds to the percentile
         // of the VALID subset.
-        val percentileRank = (percentile / 100f) * validCount
+        val percentileRank = (percentile / 100f) * (validCount - 1)
         val targetIndex = validStartIndex + percentileRank.toInt()
 
         // Clamp to ensure we stay within valid bounds

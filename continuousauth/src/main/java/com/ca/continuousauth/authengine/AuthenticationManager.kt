@@ -50,10 +50,17 @@ class AuthenticationManager(
         // it might be expected to be ready.
         // Let's keep it synchronous but safe, or move to a `initialize()` suspend function.
         // For strict refactoring of existing logic, keeping it blocking but safe.
-        runBlocking { loadStoredVectors() }
-        loadModel()
-        loadThresholdOnce()
-        Logger.d("AuthenticationManager initialization completed")
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                loadStoredVectors()
+                Logger.d("Stored vectors loaded")
+                loadModel()
+                loadThresholdOnce()
+                Logger.d("AuthenticationManager initialization completed")
+            } catch (e: Exception) {
+                Logger.e("Failed to load vectors: ${e.message}")
+            }
+        }
     }
 
     // --------------------------------------------------
@@ -92,7 +99,7 @@ class AuthenticationManager(
         val rawScore = authModel.inferScore(featureVector)
 
         // Implement Exponential Moving Average (EMA) smoothing
-        val alpha = 0.3f // Smoothing factor
+        val alpha = AuthConfigManager.config.emaAlpha // Smoothing factor
         val emaScore =
                 if (rawScore != null) {
                     val previous = cachedEmaScore ?: rawScore

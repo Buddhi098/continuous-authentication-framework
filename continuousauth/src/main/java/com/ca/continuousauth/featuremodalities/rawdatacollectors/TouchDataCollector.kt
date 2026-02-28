@@ -130,7 +130,6 @@ class TouchDataCollector(
                         // CASE 2: TouchEventFlow available → Process events
                         // ------------------------------------------------
                         val gestureState = GestureState()
-                        var lastEmittedVector: List<Float>? = null
 
                         val eventJob =
                                 touchEventFlow
@@ -160,9 +159,8 @@ class TouchDataCollector(
                                                     Logger.d(
                                                             "TouchDataCollector: ACTION_UP - computed feature vector (dim=${vector.size}, hasNonZero=$hasNonZero)"
                                                     )
-                                                    if (hasNonZero && vector != lastEmittedVector) {
+                                                    if (hasNonZero) {
                                                         trySend(event.timestamp to vector).isSuccess
-                                                        lastEmittedVector = vector
                                                         Logger.d(
                                                                 "TouchDataCollector: Gesture completed - new feature emitted"
                                                         )

@@ -4,6 +4,9 @@ import android.content.Context
 import android.content.res.AssetFileDescriptor
 import com.ca.continuousauth.config.AuthConfigManager
 import com.ca.continuousauth.utils.Logger
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -64,9 +67,11 @@ class AuthModel(
     private val inferenceOutputs: MutableMap<String, Any> = HashMap()
 
     init {
-        Logger.d("Initializing AuthModel...")
-        initializeInterpreter()
-        setupInferenceMaps()
+        CoroutineScope(Dispatchers.IO).launch {
+            initializeInterpreter()
+            setupInferenceMaps()
+            Logger.d("Interpreter ready")
+        }
     }
 
     private fun setupInferenceMaps() {

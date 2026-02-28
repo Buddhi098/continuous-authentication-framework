@@ -45,7 +45,8 @@ private constructor(
          * 3. System Settings
          * ------------------------------------------------------------------ */
         val enableLogging: Boolean,
-        val maxStoredAuthenticatedVectors: Int
+        val maxStoredAuthenticatedVectors: Int,
+        val emaAlpha: Float
 ) {
 
     init {
@@ -67,17 +68,19 @@ private constructor(
             "enrollmentDataFilterRatio must be between 0.0 and 0.3"
         }
         require(maxStoredAuthenticatedVectors > 0) { "maxStoredAuthenticatedVectors must be > 0" }
+        require(emaAlpha in 0.0f..1.0f) { "emaAlpha must be between 0.0 and 1.0" }
     }
 
     class Builder {
 
         /* -------------------- Data Collection -------------------- */
-        private var sampleCollectionFrequencyHz: Int = 128
+        private var sampleCollectionFrequencyHz: Int = 64
         private var enrollmentSamples: Int = 2000
         private var windowSize: Int = 128
-        private var windowOverlapRatio: Double = 0.75
+        private var windowOverlapRatio: Double = 0.5
         private var shouldLogFeatureVector: Boolean = true
         private var maxStoredAuthenticatedVectors: Int = 2000
+        private var emaAlpha: Float = 0.8f
 
         /* -------------------- Model Training --------------------- */
         private var sensorModelFileName: String = "sensor_model.tflite"
@@ -103,7 +106,7 @@ private constructor(
         private var outputReconstruction: String = "reconstruction"
         private var outputLoss: String = "loss"
         private var outputStatus: String = "status"
-        private var outputReconstructionError: String = "reconstruction_error"
+        private var outputReconstructionError: String = "anomaly_score"
 
         /* --------------------- System ---------------------------- */
         private var enableLogging: Boolean = true
@@ -156,6 +159,8 @@ private constructor(
             maxStoredAuthenticatedVectors = value
         }
 
+        fun emaAlpha(value: Float) = apply { emaAlpha = value }
+
         fun build(): AuthConfig =
                 AuthConfig(
                         sampleCollectionFrequencyHz = sampleCollectionFrequencyHz,
@@ -184,7 +189,8 @@ private constructor(
                         outputStatus = outputStatus,
                         outputReconstructionError = outputReconstructionError,
                         enableLogging = enableLogging,
-                        maxStoredAuthenticatedVectors = maxStoredAuthenticatedVectors
+                        maxStoredAuthenticatedVectors = maxStoredAuthenticatedVectors,
+                        emaAlpha = emaAlpha
                 )
     }
 
