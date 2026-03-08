@@ -7,9 +7,10 @@ Usage:
 import tensorflow as tf
 
 from config import EXPORT_PATH, SENSOR_TFLITE_FILE_PATH, FUSION_TFLITE_FILE_PATH, SENSOR_INPUT_DIM, FUSION_INPUT_DIM
-from models.deep_autoencoder import DeepAnomalyAutoencoder
+# from models.deep_autoencoder import DeepAnomalyAutoencoder
 from converters import TFLiteConverter
-
+# from models.test import DeepAnomalyAutoencoder
+from models.test2 import DeepAnomalyAutoencoder
 
 def main():
     print(f"TensorFlow Version: {tf.__version__}")

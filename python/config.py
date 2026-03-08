@@ -11,13 +11,14 @@ ASSETS_DIR = PROJECT_ROOT / "app" / "src" / "main" / "assets"
 ASSETS_DIR.mkdir(parents=True, exist_ok=True)
 EXPORT_PATH = PROJECT_ROOT / "python" / "saved_model"
 
-SENSOR_TFLITE_FILE_PATH = ASSETS_DIR / "sensor_model.tflite"
+# SENSOR_TFLITE_FILE_PATH = ASSETS_DIR / "sensor_model.tflite"
+SENSOR_TFLITE_FILE_PATH = "D:/research-experiment/model-training-code/sensor_model.tflite"
 FUSION_TFLITE_FILE_PATH = ASSETS_DIR / "fusion_model.tflite"
 
 # -------------------------------------------------------------------------
 # Default Model Hyperparameters
 # -------------------------------------------------------------------------
-SENSOR_INPUT_DIM = 28  # linearAccel(14) + gyro(14) + totalAccel(14)
+SENSOR_INPUT_DIM = 59  # linearAccel(14) + gyro(14) + totalAccel(14)
 FUSION_INPUT_DIM = 56  # sensor(42) + touch(14)
 
 # Backward compatibility or general default
