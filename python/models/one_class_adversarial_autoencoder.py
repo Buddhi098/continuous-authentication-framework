@@ -3,34 +3,11 @@ from typing import Dict, List
 from .base import BaseAnomalyDetector
 import math
 
-# =========================================================
-# Global Hyperparameters for Fine-Tuning
-# =========================================================
-# Data Dimensions
-INPUT_DIM = 12
-SEQUENCE_LENGTH = 200
-BATCH_SIZE = 16
-
-# Latent Space
-LATENT_DIM = 128
-NOISE_STDDEV = 0.1           # Noise added to inputs during training
-
-# Loss Weights
-LAMBDA_REC = 50.0           # Weight of MSE reconstruction loss vs GAN loss
-
-# Learning Rates
-LR_ENC_DEC = 1e-4            # Autoencoder learning rate
-LR_S_DISC = 1e-4             # Sample discriminator learning rate
-LR_L_DISC = 1e-4             # Latent discriminator learning rate
-
-# Attention Module Settings
-SE_REDUCTION = 8             # Squeeze-and-Excitation reduction ratio
-CBAM_REDUCTION = 8           # CBAM channel reduction ratio
-CBAM_SPATIAL_KERNEL = 5  #3      # CBAM spatial convolution kernel size
-
-# Architecture Tweaks
-LEAKY_RELU_ALPHA = 0.2       # Slope for LeakyReLU layers
-# =========================================================
+from config import (
+    SEQUENCE_LENGTH, BATCH_SIZE, LATENT_DIM, NOISE_STDDEV, 
+    LAMBDA_REC, LR_ENC_DEC, LR_S_DISC, LR_L_DISC, SE_REDUCTION, 
+    CBAM_REDUCTION, CBAM_SPATIAL_KERNEL, LEAKY_RELU_ALPHA
+)
 
 
 # ---------------------------------------------------------
@@ -67,7 +44,7 @@ class CBAM(tf.keras.layers.Layer):
 # ---------------------------------------------------------
 class OneClassAdversarialAutoencoder(BaseAnomalyDetector):
 
-    def __init__(self, input_dim=INPUT_DIM, sequence_length=SEQUENCE_LENGTH, batch_size=BATCH_SIZE, latent_dim=LATENT_DIM, **kwargs):
+    def __init__(self, input_dim=None, sequence_length=SEQUENCE_LENGTH, batch_size=BATCH_SIZE, latent_dim=LATENT_DIM, **kwargs):
         super().__init__(input_dim=input_dim, batch_size=batch_size, **kwargs)
         self.sequence_length = sequence_length
         self.latent_dim = latent_dim
@@ -183,6 +160,10 @@ class OneClassAdversarialAutoencoder(BaseAnomalyDetector):
         return unique_vars
 
     @property
+    def input_shape(self):
+        return (self.batch_size, self.input_dim, self.sequence_length, 1)
+
+    @property
     def signature_keys(self) -> List[str]:
         return ['train', 'infer', 'init_model', 'save', 'restore']
 
@@ -193,7 +174,7 @@ class OneClassAdversarialAutoencoder(BaseAnomalyDetector):
         return recon
 
     # ---------------- Training Function ----------------
-    @tf.function(input_signature=[tf.TensorSpec(shape=[None, INPUT_DIM, SEQUENCE_LENGTH, 1], dtype=tf.float32)])
+    @tf.function(input_signature=[tf.TensorSpec(shape=[None, None, SEQUENCE_LENGTH, 1], dtype=tf.float32)])
     def train_func(self, inputs: tf.Tensor) -> Dict[str, tf.Tensor]:
         batch = tf.shape(inputs)[0]
         noise = tf.random.normal(tf.shape(inputs), stddev=NOISE_STDDEV)
@@ -250,7 +231,7 @@ class OneClassAdversarialAutoencoder(BaseAnomalyDetector):
         }
 
     # ---------------- Inference ----------------
-    @tf.function(input_signature=[tf.TensorSpec(shape=[None, INPUT_DIM, SEQUENCE_LENGTH, 1], dtype=tf.float32)])
+    @tf.function(input_signature=[tf.TensorSpec(shape=[None, None, SEQUENCE_LENGTH, 1], dtype=tf.float32)])
     def infer_func(self, inputs: tf.Tensor) -> Dict[str, tf.Tensor]:
         recon = self.call(inputs, training=False)
         mse = tf.reduce_mean(tf.square(inputs - recon), axis=[1,2,3])

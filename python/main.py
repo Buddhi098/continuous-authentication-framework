@@ -16,7 +16,7 @@ def main():
     # Create Sensor model
     print("Initializing Deep Anomaly Autoencoder (Sensor Only)...")
     # sensor_model = DeepAnomalyAutoencoder(input_dim=SENSOR_INPUT_DIM)
-    sensor_model = OneClassAdversarialAutoencoder()
+    sensor_model = OneClassAdversarialAutoencoder(input_dim=SENSOR_INPUT_DIM)
     
     # Convert to LiteRT model
     converter = TFLiteConverter()
@@ -31,17 +31,17 @@ def main():
 
     # Create Fusion model
     print("Initializing Deep Anomaly Autoencoder (Fusion)...")
-    # # fusion_model = DeepAnomalyAutoencoder(input_dim=FUSION_INPUT_DIM)
-    # fusion_model = OneClassAdversarialAutoencoder()
+    # fusion_model = DeepAnomalyAutoencoder(input_dim=FUSION_INPUT_DIM)
+    fusion_model = OneClassAdversarialAutoencoder(input_dim=FUSION_INPUT_DIM)
     
-    # # Convert to LiteRT model
-    # fusion_tflite_path = converter.convert(
-    #     model=fusion_model,
-    #     export_path=EXPORT_PATH / "fusion",
-    #     output_path=FUSION_TFLITE_FILE_PATH
-    # )
+    # Convert to LiteRT model
+    fusion_tflite_path = converter.convert(
+        model=fusion_model,
+        export_path=EXPORT_PATH / "fusion",
+        output_path=FUSION_TFLITE_FILE_PATH
+    )
     
-    # print(f"SUCCESS: LiteRT Fusion model saved at: {fusion_tflite_path}")
+    print(f"SUCCESS: LiteRT Fusion model saved at: {fusion_tflite_path}")
 
 if __name__ == "__main__":
     main()

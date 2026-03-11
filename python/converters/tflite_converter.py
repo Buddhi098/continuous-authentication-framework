@@ -5,7 +5,6 @@ import tensorflow as tf
 import shutil
 from pathlib import Path
 from typing import Optional, List
-
 from models.base import BaseAnomalyDetector
 
 
@@ -29,40 +28,49 @@ class TFLiteConverter:
         self.enable_resource_variables = enable_resource_variables
     
     def export_saved_model(
-        self,
-        model: BaseAnomalyDetector,
-        export_path: Path,
-        clean_existing: bool = True
-    ) -> Path:
+            self,
+            model: BaseAnomalyDetector,
+            export_path: Path,
+            clean_existing: bool = True
+        ) -> Path:
         """
         Export model as SavedModel with signatures.
-        
+
         Args:
             model: The anomaly detector model to export
             export_path: Directory to save the model
             clean_existing: Remove existing directory if present
-            
+
         Returns:
             Path to the exported SavedModel
         """
+
         export_path = Path(export_path)
-        
+
         if clean_existing and export_path.exists():
             shutil.rmtree(export_path)
-        
-        # Build model if not already built
-        # dummy_input = tf.zeros([1, model.input_dim])
-        dummy_input = tf.zeros([20, 12 , 200 , 1])
-        # dummy_input = tf.zeros([20, 200, 12])  # batch=20, sequence_length=200, channels=12
+
+        # -------------------------------------------------
+        # Dynamically determine model input shape
+        # -------------------------------------------------
+        if hasattr(model, "input_shape") and model.input_shape is not None:
+            input_shape = list(model.input_shape)
+            input_shape[0] = 1  # Replace batch dimension with 1
+        else:
+            raise ValueError("Model input shape is not defined.")
+
+        # Build model using dummy input
+        dummy_input = tf.zeros(input_shape)
+
         model.train_func(dummy_input)
         model.bake_weights()
-        
+
         # Get signatures from model
         signatures = model.get_signatures()
-        
+
         print(f"Exporting SavedModel to {export_path}...")
         tf.saved_model.save(model, str(export_path), signatures=signatures)
-        
+
         return export_path
     
     def convert_to_tflite(
