@@ -106,7 +106,7 @@ class DeepAnomalyAutoencoder(BaseAnomalyDetector):
         return 0.7 * mse + 0.3 * max_error
 
     def bake_weights(self) -> None:
-        self.baked_weights = [tf.constant(w.numpy(), dtype=w.dtype) for w in self.trainable_variables]
+        self.baked_weights = [tf.constant(w.numpy(), dtype=w.dtype) for w in self.persistent_weights]
 
     def infer_func(self, inputs: tf.Tensor) -> Dict[str, tf.Tensor]:
         reconstruction = self.call(inputs, training=False)
@@ -132,7 +132,7 @@ class DeepAnomalyAutoencoder(BaseAnomalyDetector):
 
     def init_model(self, x: tf.Tensor) -> Dict[str, tf.Tensor]:
         if self.baked_weights:
-            for var, baked in zip(self.trainable_variables, self.baked_weights):
+            for var, baked in zip(self.persistent_weights, self.baked_weights):
                 var.assign(baked)
         if hasattr(self.optimizer, "variables"):
             for v in self.optimizer.variables:
@@ -140,10 +140,10 @@ class DeepAnomalyAutoencoder(BaseAnomalyDetector):
         return {"status": tf.constant(1.0, dtype=tf.float32)}
 
     def save_weights_func(self, x: tf.Tensor) -> Dict[str, tf.Tensor]:
-        return {f"val_{i}": v for i, v in enumerate(self.trainable_variables)}
+        return {f"val_{i}": v for i, v in enumerate(self.persistent_weights)}
 
     def restore_weights_func(self, **kwargs) -> Dict[str, tf.Tensor]:
-        for i, var in enumerate(self.trainable_variables):
+        for i, var in enumerate(self.persistent_weights):
             key = f"val_{i}"
             if key in kwargs:
                 var.assign(kwargs[key])

@@ -51,8 +51,10 @@ class TFLiteConverter:
             shutil.rmtree(export_path)
         
         # Build model if not already built
-        dummy_input = tf.zeros([1, model.input_dim])
-        model(dummy_input)
+        # dummy_input = tf.zeros([1, model.input_dim])
+        dummy_input = tf.zeros([20, 12 , 200 , 1])
+        # dummy_input = tf.zeros([20, 200, 12])  # batch=20, sequence_length=200, channels=12
+        model.train_func(dummy_input)
         model.bake_weights()
         
         # Get signatures from model

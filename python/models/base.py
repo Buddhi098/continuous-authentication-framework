@@ -21,6 +21,11 @@ class BaseAnomalyDetector(tf.keras.Model):
         self.baked_weights: List[tf.Tensor] = []
     
     @property
+    def persistent_weights(self) -> List[tf.Variable]:
+        """Return variables needed for saving/restoring, excluding untracked RNN/Dropout RNG seeds."""
+        return [v for v in self.variables if "seed_generator" not in v.name]
+    
+    @property
     @abstractmethod
     def signature_keys(self) -> List[str]:
         """
@@ -93,7 +98,7 @@ class BaseAnomalyDetector(tf.keras.Model):
         
         restore_specs = {
             f"val_{i}": tf.TensorSpec(shape=v.shape, dtype=v.dtype, name=f"val_{i}")
-            for i, v in enumerate(self.trainable_variables)
+            for i, v in enumerate(self.persistent_weights)
         }
         restore_fn = tf.function(self.restore_weights_func).get_concrete_function(**restore_specs)
         
