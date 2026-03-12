@@ -20,8 +20,8 @@ FUSION_TFLITE_FILE_PATH = ASSETS_DIR / "fusion_model.tflite"
 # Hyperparameters for Fine-Tuning (OneClassAdversarialAutoencoder)
 # =========================================================
 # Data Dimensions
-SENSOR_INPUT_DIM = 12
-FUSION_INPUT_DIM = 26
+SENSOR_INPUT_DIM = 8
+FUSION_INPUT_DIM = 22
 SEQUENCE_LENGTH = 200
 BATCH_SIZE = 16
 

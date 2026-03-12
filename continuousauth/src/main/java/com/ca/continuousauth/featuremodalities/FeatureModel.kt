@@ -65,9 +65,12 @@ class FeatureModel {
         val dualFlow: Flow<DualFeatureVector> = combine(
             gyroFlow,
             totalAccelFlow,
-            magnoFlow,
+//            magnoFlow,
             touchFlow
-        ) { gyro, totalAccel, magno, touchPair ->
+        ) { gyro,
+            totalAccel,
+//            magno,
+            touchPair ->
 
             val (touchTime, touchFeatures) = touchPair
 
@@ -75,7 +78,7 @@ class FeatureModel {
             val sensorMap = mapOf(
                 "gyro" to gyro,
                 "totalAccel" to totalAccel,
-                "magno" to magno
+//                "magno" to magno
             )
             val sensorOutput = FusedFeatureBuilder.buildFusedFeatures(sensorMap)
             val sensorVector = flattenFeatureOutput(sensorOutput)
@@ -99,7 +102,7 @@ class FeatureModel {
                 val fusedMap = mapOf(
                     "gyro" to gyro,
                     "totalAccel" to totalAccel,
-                    "magno" to magno,
+//                    "magno" to magno,
                     "touch" to latchedTouchFeatures!!
                 )
                 val fusionOutput = FusedFeatureBuilder.buildFusedFeatures(fusedMap)
