@@ -93,7 +93,7 @@ class EnrollmentForegroundService : Service() {
                     return@launch
                 }
 
-                val result = withTimeout(30 * 60 * 1000) { suspendEnrollment(auth) }
+                val result = withTimeout(200 * 60 * 1000) { suspendEnrollment(auth) }
 
                 val elapsed = SystemClock.elapsedRealtime() - startTime
                 Log.i(TAG, "Enrollment finished in ${elapsed}ms | success=${result.success}")
@@ -107,7 +107,7 @@ class EnrollmentForegroundService : Service() {
 
             } catch (e: TimeoutCancellationException) {
                 Log.e(TAG, "Enrollment timed out", e)
-                emitFailure("Training timed out after 5 minutes", e)
+                emitFailure("Training timed out after 200 minutes", e)
 
             } catch (e: Exception) {
                 Log.e(TAG, "Enrollment error", e)
