@@ -6,7 +6,7 @@ import shutil
 from pathlib import Path
 from typing import Optional, List
 from models.base import BaseAnomalyDetector
-
+from config import BATCH_SIZE
 
 class TFLiteConverter:
     """
@@ -55,7 +55,7 @@ class TFLiteConverter:
         # -------------------------------------------------
         if hasattr(model, "input_shape") and model.input_shape is not None:
             input_shape = list(model.input_shape)
-            input_shape[0] = 1  # Replace batch dimension with 1
+            input_shape[0] = BATCH_SIZE  # Replace batch dimension with 1
         else:
             raise ValueError("Model input shape is not defined.")
 

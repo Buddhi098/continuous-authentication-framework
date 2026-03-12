@@ -23,48 +23,6 @@ class EnrollmentManager(
     // --------------------------------------------------
 
     /**
-     * Filters out unstable legitimate samples using reconstruction error.
-     *
-     * @param data Legitimate enrollment samples
-     * @param dropRatio Fraction of worst samples to remove (e.g. 0.15 = remove top 15%)
-     */
-    private fun filterTightLegitSamples(
-            data: List<List<Float>>,
-            dropRatio: Double = 0.1
-    ): List<List<Float>> {
-
-        if (data.size < 100) {
-            // Too small → do NOT filter
-            Logger.d("Skipping legit filtering (dataset too small)")
-            return data
-        }
-
-        // Compute reconstruction error for each sample
-        val scored =
-                data.mapNotNull { sample ->
-                    authModel.inferScore(sample)?.let { score -> sample to score }
-                }
-
-        if (scored.isEmpty()) return data
-
-        // Sort by error (ascending = best legit)
-        val sorted = scored.sortedBy { it.second }
-
-        val keepCount =
-                (sorted.size * (1f - dropRatio))
-                        .toInt()
-                        .coerceAtLeast(10) // always keep minimum core
-
-        val filtered = sorted.take(keepCount).map { it.first }
-
-        Logger.d(
-                "Legit filtering: original=${data.size}, kept=${filtered.size}, removed=${data.size - filtered.size}"
-        )
-
-        return filtered
-    }
-
-    /**
      * Enrolls the model using the provided dataset.
      * @param dataSet List of feature vectors for enrollment
      * @param thresholdFactor Factor to multiply standard deviation for threshold

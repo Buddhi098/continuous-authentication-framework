@@ -7,7 +7,8 @@ Usage:
 import tensorflow as tf
 from config import EXPORT_PATH, SENSOR_TFLITE_FILE_PATH, FUSION_TFLITE_FILE_PATH, SENSOR_INPUT_DIM, FUSION_INPUT_DIM
 from converters import TFLiteConverter
-from models.one_class_adversarial_autoencoder import OneClassAdversarialAutoencoder
+from models.oca_autoencoder_sensor import OneClassAdversarialAutoencoderSensor
+from models.oca_autoencoder_fused import OneClassAdversarialAutoencoderFused
 
 def main():
     print(f"TensorFlow Version: {tf.__version__}")
@@ -15,8 +16,7 @@ def main():
     
     # Create Sensor model
     print("Initializing Deep Anomaly Autoencoder (Sensor Only)...")
-    # sensor_model = DeepAnomalyAutoencoder(input_dim=SENSOR_INPUT_DIM)
-    sensor_model = OneClassAdversarialAutoencoder(input_dim=SENSOR_INPUT_DIM)
+    sensor_model = OneClassAdversarialAutoencoderSensor()
     
     # Convert to LiteRT model
     converter = TFLiteConverter()
@@ -31,8 +31,7 @@ def main():
 
     # Create Fusion model
     print("Initializing Deep Anomaly Autoencoder (Fusion)...")
-    # fusion_model = DeepAnomalyAutoencoder(input_dim=FUSION_INPUT_DIM)
-    fusion_model = OneClassAdversarialAutoencoder(input_dim=FUSION_INPUT_DIM)
+    fusion_model = OneClassAdversarialAutoencoderFused()
     
     # Convert to LiteRT model
     fusion_tflite_path = converter.convert(

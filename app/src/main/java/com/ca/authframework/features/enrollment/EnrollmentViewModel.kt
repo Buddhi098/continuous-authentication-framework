@@ -10,7 +10,9 @@ import com.ca.authframework.service.EnrollmentForegroundService
 import com.ca.authframework.service.EnrollmentResultBus
 import com.ca.continuousauth.ContinuousAuth
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 class EnrollmentViewModel(private val context: Context, private val auth: ContinuousAuth) :
@@ -25,6 +27,9 @@ class EnrollmentViewModel(private val context: Context, private val auth: Contin
     val progress: StateFlow<Float> = auth.progress
     val collectedSampleCount: StateFlow<Int> = auth.collectedSamplesCount
     val isPaused: StateFlow<Boolean> = auth.isPaused
+
+    private val _currentFrequency = MutableStateFlow(0)
+    val currentFrequency: StateFlow<Int> = _currentFrequency.asStateFlow()
 
     private val _statusMessage = MutableStateFlow("")
     val statusMessage: StateFlow<String> = _statusMessage.asStateFlow()
@@ -45,6 +50,7 @@ class EnrollmentViewModel(private val context: Context, private val auth: Contin
 
     private var enrollmentTriggered = false
     private var progressJob: Job? = null
+    private var frequencyJob: Job? = null
 
     init {
         try {
@@ -80,6 +86,7 @@ class EnrollmentViewModel(private val context: Context, private val auth: Contin
             auth.startCollecting()
             resetTrigger()
             observeProgress()
+            startFrequencyMonitor()
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start collection", e)
             _statusMessage.value = "Failed to start collection"
@@ -91,6 +98,8 @@ class EnrollmentViewModel(private val context: Context, private val auth: Contin
             Log.d(TAG, "Pausing collection")
             auth.pauseCollecting()
             progressJob?.cancel()
+            frequencyJob?.cancel()
+            _currentFrequency.value = 0
         } catch (e: Exception) {
             Log.e(TAG, "Failed to pause collection", e)
             _statusMessage.value = "Failed to pause collection"
@@ -104,6 +113,7 @@ class EnrollmentViewModel(private val context: Context, private val auth: Contin
             auth.resumeCollecting()
             resetTrigger()
             observeProgress()
+            startFrequencyMonitor()
         } catch (e: Exception) {
             Log.e(TAG, "Failed to resume collection", e)
             _statusMessage.value = "Failed to resume collection"
@@ -116,12 +126,13 @@ class EnrollmentViewModel(private val context: Context, private val auth: Contin
             auth.clearCollection()
             auth.clearEnrollmentFiles()
             _statusMessage.value = ""
-            _statusMessage.value = ""
             _threshold.value = 0f
             _fusionThreshold.value = 0f
             _trainedSampleCount.value = null
             enrollmentTriggered = false
             progressJob?.cancel()
+            frequencyJob?.cancel()
+            _currentFrequency.value = 0
         } catch (e: Exception) {
             Log.e(TAG, "Failed to clear all data", e)
             _statusMessage.value = "Failed to clear data"
@@ -135,6 +146,8 @@ class EnrollmentViewModel(private val context: Context, private val auth: Contin
             _statusMessage.value = ""
             enrollmentTriggered = false
             progressJob?.cancel()
+            frequencyJob?.cancel()
+            _currentFrequency.value = 0
         } catch (e: Exception) {
             Log.e(TAG, "Failed to clear collection", e)
             _statusMessage.value = "Failed to clear collection"
@@ -194,6 +207,22 @@ class EnrollmentViewModel(private val context: Context, private val auth: Contin
                         Log.e(TAG, "Progress observation failed", e)
                     }
                 }
+    }
+
+    private fun startFrequencyMonitor() {
+        frequencyJob?.cancel()
+        frequencyJob = viewModelScope.launch {
+            var lastCount = auth.collectedSamplesCount.value
+            while (isActive) {
+                delay(1000)
+                val currentCount = auth.collectedSamplesCount.value
+                val diff = currentCount - lastCount
+                if (diff >= 0) {
+                    _currentFrequency.value = diff
+                }
+                lastCount = currentCount
+            }
+        }
     }
 
     // ---- Enrollment ----
@@ -276,5 +305,6 @@ class EnrollmentViewModel(private val context: Context, private val auth: Contin
         super.onCleared()
         Log.d(TAG, "ViewModel cleared")
         progressJob?.cancel()
+        frequencyJob?.cancel()
     }
 }

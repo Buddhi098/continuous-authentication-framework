@@ -21,7 +21,7 @@ FUSION_TFLITE_FILE_PATH = ASSETS_DIR / "fusion_model.tflite"
 # =========================================================
 # Data Dimensions
 SENSOR_INPUT_DIM = 12
-FUSION_INPUT_DIM = 15
+FUSION_INPUT_DIM = 26
 SEQUENCE_LENGTH = 200
 BATCH_SIZE = 16
 

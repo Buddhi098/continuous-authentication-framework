@@ -14,18 +14,20 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 
-/** Full pipeline to process linear accelerometer features as a Flow. */
-fun collectProcessedLinearAccelFeatures(
-        collector: () -> Flow<Pair<Long, List<Float>>>,
-        dispatcher: CoroutineDispatcher = Dispatchers.Default
+/**
+ * Full pipeline to process magnetometer features as a Flow.
+ *
+ * @param collector A function that starts raw magnetometer data streaming
+ */
+fun collectProcessedMagnetometerFeatures(
+    collector: () -> Flow<Pair<Long, List<Float>>>,
+    dispatcher: CoroutineDispatcher = Dispatchers.Default
 ): Flow<List<Float>> {
 
-    val windowSize: Int = AuthConfigManager.config.windowSize
-    val windowOverlap: Double = AuthConfigManager.config.windowOverlapRatio
+    val windowSize = AuthConfigManager.config.windowSize
+    val windowOverlap = AuthConfigManager.config.windowOverlapRatio
 
     val denoisers: List<SensorDenoiser> = listOf(KalmanDenoiser())
-    // Example if needed later:
-    // listOf(LowpassDenoiser(), BandpassHandMovementDenoiser())
 
     val featureExtractors: List<FeatureExtractor> = listOf(RawSequenceFeatureExtractor())
 
@@ -34,5 +36,5 @@ fun collectProcessedLinearAccelFeatures(
         .denoisePipeline(denoisers)
         .featurePipeline(featureExtractors)
         .flowOn(dispatcher)
-        .catch { ex -> Logger.e("Error in linear accelerometer feature flow", ex) } as Flow<List<Float>>
+        .catch { ex -> Logger.e("Error in magnetometer feature flow", ex) } as Flow<List<Float>>
 }

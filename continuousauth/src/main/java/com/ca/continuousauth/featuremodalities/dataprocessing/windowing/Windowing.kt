@@ -1,7 +1,6 @@
 package com.ca.continuousauth.featuremodalities.dataprocessing.windowing
 
 import com.ca.continuousauth.config.AuthConfigManager
-import com.ca.continuousauth.utils.Logger
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 
@@ -21,26 +20,25 @@ fun Flow<Pair<Long, List<Float>>>.windowedFlow(
     require(overlapRatio >= 0.0 && overlapRatio < 1.0) { "overlapRatio must be in [0, 1)" }
 
     val step = (windowSize * (1 - overlapRatio)).toInt().coerceAtLeast(1)
-    val buffer = mutableListOf<Pair<Long, List<Float>>>()
+    val buffer = ArrayDeque<Pair<Long, List<Float>>>(windowSize + step)
 
     collect { item ->
-        buffer.add(item)
+        buffer.addLast(item)
 
         while (buffer.size >= windowSize) {
-            val window = buffer.take(windowSize)
+            // Extract exactly windowSize elements without copying the entire buffer
+            val window = ArrayList<Pair<Long, List<Float>>>(windowSize)
+            val iter = buffer.iterator()
+            repeat(windowSize) { window.add(iter.next()) }
 
-            // emit safely
             emit(window)
-//            Logger.d("Emitting window with ${window.size} elements, first ts=${window.first().first}")
 
-            // remove items according to step
-            repeat(step) { if (buffer.isNotEmpty()) buffer.removeAt(0) }
+            // remove items according to step — O(1) per removeFirst()
+            repeat(step) { if (buffer.isNotEmpty()) buffer.removeFirst() }
         }
     }
 
-    // emit remaining elements (optional)
-    if (buffer.isNotEmpty()) {
-        emit(buffer.toList())
-        Logger.d("Emitting final partial window with ${buffer.size} elements")
-    }
+    // Drop any remaining partial window — emitting fewer than windowSize rows
+    // would produce a feature matrix with wrong dimensions, causing a shape
+    // mismatch with the model that expects exactly windowSize timesteps.
 }

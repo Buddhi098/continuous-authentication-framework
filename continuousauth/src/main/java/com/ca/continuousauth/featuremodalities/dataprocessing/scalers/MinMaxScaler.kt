@@ -40,14 +40,20 @@ class MinMaxScaler(private val context: Context, private val prefsName: String) 
             "All feature vectors must have the same size ($featureCount)"
         }
 
-        min = FloatArray(featureCount)
-        max = FloatArray(featureCount)
+        // Compute min/max in a single pass — avoids creating featureCount temp lists
+        val localMin = FloatArray(featureCount) { Float.MAX_VALUE }
+        val localMax = FloatArray(featureCount) { -Float.MAX_VALUE }
 
-        for (i in 0 until featureCount) {
-            val values = features.map { it[i] }
-            min!![i] = values.minOrNull() ?: 0f
-            max!![i] = values.maxOrNull() ?: 1f
+        for (sample in features) {
+            for (i in 0 until featureCount) {
+                val v = sample[i]
+                if (v < localMin[i]) localMin[i] = v
+                if (v > localMax[i]) localMax[i] = v
+            }
         }
+
+        min = localMin
+        max = localMax
 
         saveToPrefs()
         return transform(features)
@@ -64,17 +70,18 @@ class MinMaxScaler(private val context: Context, private val prefsName: String) 
     override fun transform(features: List<List<Float>>): List<List<Float>> {
         val min = this.min ?: throw IllegalStateException("Scaler has not been fitted yet.")
         val max = this.max ?: throw IllegalStateException("Scaler has not been fitted yet.")
+        val featureCount = min.size
+
+        // Pre-compute ranges once to avoid repeated subtraction
+        val ranges = FloatArray(featureCount) { i -> max[i] - min[i] }
 
         return features.map { vec ->
-            vec.mapIndexed { i, value ->
-                val range = max[i] - min[i]
-                if (range == 0f) {
-                    // Feature has no variance; return midpoint of [0, 1]
-                    0.5f
-                } else {
-                    (value - min[i]) / range
-                }
+            // Use FloatArray internally to avoid boxing overhead
+            val scaled = FloatArray(vec.size) { i ->
+                if (ranges[i] == 0f) 0.5f
+                else (vec[i] - min[i]) / ranges[i]
             }
+            scaled.asList()
         }
     }
 

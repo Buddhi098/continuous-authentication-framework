@@ -35,6 +35,7 @@ fun EnrollmentScreen(viewModel: EnrollmentViewModel, targetSamples: Int = 100) {
         // 🔐 Model State: Any threshold > 0 means a model is trained
         val threshold by viewModel.threshold.collectAsState()
         val trainedSampleCount by viewModel.trainedSampleCount.collectAsState()
+        val currentFrequency by viewModel.currentFrequency.collectAsState()
 
         val isCompleted = progress >= 1f
         var showClearDialog by remember { mutableStateOf(false) }
@@ -503,6 +504,15 @@ fun EnrollmentScreen(viewModel: EnrollmentViewModel, targetSamples: Int = 100) {
                                                                         MaterialTheme.colorScheme
                                                                                 .onSurfaceVariant
                                                         )
+                                                        if (isCollecting) {
+                                                                Text(
+                                                                        text = "${currentFrequency} Hz (Target 100Hz)",
+                                                                        style = MaterialTheme.typography.labelSmall,
+                                                                        color = MaterialTheme.colorScheme.primary,
+                                                                        modifier = Modifier.padding(top = 4.dp),
+                                                                        fontWeight = FontWeight.Medium
+                                                                )
+                                                        }
                                                 }
                                         }
                                 }

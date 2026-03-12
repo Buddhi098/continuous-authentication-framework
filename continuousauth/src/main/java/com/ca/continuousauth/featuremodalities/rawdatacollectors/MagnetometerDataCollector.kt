@@ -21,38 +21,37 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
 
-class TotalAccelerometerDataCollector(
+class MagnetometerDataCollector(
     context: Context,
-    // Default to config, but allow override for testing/flexibility
     private val frequencyHz: Int = AuthConfigManager.config.sampleCollectionFrequencyHz,
     private val dispatcher: CoroutineDispatcher = Dispatchers.Default
 ) : RawDataCollector<List<Float>> {
 
-    override val modalityName: String = "TOTAL_ACCELEROMETER"
+    override val modalityName: String = "MAGNETOMETER"
 
-    private val sensorManager =
+    private val sensorManager: SensorManager =
         context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
 
-    private val accelerometer: Sensor? =
-        sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+    private val magnetometer: Sensor? =
+        sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)
 
     override fun start(): Flow<Pair<Long, List<Float>>> = callbackFlow {
 
-        // 1. Calculate Sampling Period in Microseconds
-        // Note: This is a hint to the OS. Actual frequency may vary.
+        // Convert Hz → microseconds (Hint for the OS)
         val samplingPeriodUs = (1_000_000 / frequencyHz)
 
         // ------------------------------------------------
-        // CASE 1: Accelerometer NOT available (Fallback)
+        // CASE 1: Magnetometer NOT available → Fallback
         // ------------------------------------------------
-        if (accelerometer == null) {
-            Logger.e("Accelerometer not available. Emitting zero values.")
+        if (magnetometer == null) {
+            Logger.e("Magnetometer not available. Emitting zero values.")
             val intervalMs = 1000L / frequencyHz
 
             val zeroJob = launch {
                 while (true) {
-                    // Emit zeros to keep the pipeline alive if sensor is missing
-                    trySend(System.currentTimeMillis() to listOf(0f, 0f, 0f))
+                    val now = System.currentTimeMillis()
+                    // Emit zeros to keep the pipeline alive
+                    trySend(now to listOf(0f, 0f, 0f))
                     delay(intervalMs)
                 }
             }
@@ -61,7 +60,7 @@ class TotalAccelerometerDataCollector(
         }
 
         // ------------------------------------------------
-        // CASE 2: Accelerometer available (Real Data)
+        // CASE 2: Magnetometer available → Real Data
         // ------------------------------------------------
 
         // Calculate the minimum period in nanoseconds to enforce the frequency
@@ -69,8 +68,7 @@ class TotalAccelerometerDataCollector(
         var lastTimestampNs = 0L
 
         // OPTIMIZATION: Background HandlerThread
-        // We move sensor event delivery off the Main UI thread to prevent UI jank.
-        val sensorThread = HandlerThread("SensorWorkerThread")
+        val sensorThread = HandlerThread("MagnetometerWorkerThread")
         sensorThread.start()
         val sensorHandler = Handler(sensorThread.looper)
 
@@ -82,23 +80,16 @@ class TotalAccelerometerDataCollector(
                 if (timestamp - lastTimestampNs < minPeriodNs) return
                 lastTimestampNs = timestamp
 
-                // Read values immediately as 'event' object is reused by Android
+                // Copy values immediately
                 val x = event.values[0]
                 val y = event.values[1]
                 val z = event.values[2]
 
-                // Create the data payload
-                // (Note: 'listOf' creates objects. If performance is critical later,
-                // consider changing interface to FloatArray to avoid GC overhead)
-                val data = listOf(x, y, z)
+                val rawData = listOf(x, y, z)
 
-                // Try to send to the flow
-                val result = trySend(timestamp to data)
-
-                // Debugging: Monitor if we are keeping up
+                val result = trySend(timestamp to rawData)
                 if (result.isFailure) {
-                    // If this logs frequently, your ML model is slower than 100Hz
-                    // Logger.w("AccBuffer overflow: Packet dropped.")
+                    Logger.e("Magnetometer buffer overflow: Packet dropped")
                 }
             }
 
@@ -107,45 +98,37 @@ class TotalAccelerometerDataCollector(
             }
         }
 
-        Logger.d("Registering accelerometer listener at ${frequencyHz}Hz")
+        Logger.d("Registering magnetometer listener at ${frequencyHz}Hz on background thread")
 
         try {
             sensorManager.registerListener(
                 listener,
-                accelerometer,
+                magnetometer,
                 samplingPeriodUs,
                 sensorHandler
             )
         } catch (ex: Exception) {
-            Logger.e("Failed to register accelerometer listener", ex)
+            Logger.e("Failed to register magnetometer listener", ex)
             close(ex)
         }
 
-        // Cleanup when the flow collection stops
+        // Cleanup when collection stops
         awaitClose {
             try {
-                Logger.d("Unregistering accelerometer listener")
+                Logger.d("Unregistering magnetometer listener")
                 sensorManager.unregisterListener(listener)
-                sensorThread.quitSafely() // Important: Kill the background thread
+                sensorThread.quitSafely()
             } catch (ex: Exception) {
-                Logger.e("Error cleanup accelerometer listener", ex)
+                Logger.e("Error while unregistering magnetometer listener", ex)
             }
         }
     }
-        // ------------------------------------------------
-        // CRITICAL FIX: Buffer Strategy
-        // ------------------------------------------------
-        // We limit the buffer to 50 items (0.5 seconds at 100Hz).
-        // If the consumer (ML model) is slow, we DROP_OLDEST.
-        // This ensures the system always processes "fresh" data and doesn't lag behind.
         .buffer(
             capacity = 50,
             onBufferOverflow = BufferOverflow.DROP_OLDEST
         )
-        // Handle unexpected errors in the flow pipeline
         .catch { ex ->
-            Logger.e("TotalAccelerometerDataCollector flow error", ex)
+            Logger.e("Magnetometer flow error", ex)
         }
-        // Ensure downstream operators run on the computation dispatcher
         .flowOn(dispatcher)
 }

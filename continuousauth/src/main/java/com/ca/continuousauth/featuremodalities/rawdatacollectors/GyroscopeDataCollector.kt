@@ -63,6 +63,10 @@ class GyroscopeDataCollector(
         // CASE 2: Gyroscope available → Real Data
         // ------------------------------------------------
 
+        // Calculate the minimum period in nanoseconds to enforce the frequency
+        val minPeriodNs = 1_000_000_000L / frequencyHz
+        var lastTimestampNs = 0L
+
         // OPTIMIZATION: Background HandlerThread
         // Moves sensor event delivery off the Main UI thread.
         val sensorThread = HandlerThread("GyroscopeWorkerThread")
@@ -73,6 +77,10 @@ class GyroscopeDataCollector(
             override fun onSensorChanged(event: SensorEvent) {
                 // Capture timestamp immediately
                 val timestamp = event.timestamp
+
+                // Enforce exact requested frequency (drop events arriving too early)
+                if (timestamp - lastTimestampNs < minPeriodNs) return
+                lastTimestampNs = timestamp
 
                 // Copy values immediately (event object is reused by Android)
                 val x = event.values[0]

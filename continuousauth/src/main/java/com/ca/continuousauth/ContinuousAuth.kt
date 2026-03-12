@@ -7,20 +7,24 @@ import com.ca.continuousauth.authengine.WeightedScoreFusionStrategy
 import com.ca.continuousauth.authmodel.AuthModel
 import com.ca.continuousauth.config.AuthConfigManager
 import com.ca.continuousauth.featuremodalities.FeatureModel
-import com.ca.continuousauth.featuremodalities.dataprocessing.scalers.StandardScaler
+import com.ca.continuousauth.featuremodalities.dataprocessing.scalers.MinMaxScaler
 import com.ca.continuousauth.states.AuthVectorResult
 import com.ca.continuousauth.states.CollectionState
 import com.ca.continuousauth.states.EnrollmentResult
 import com.ca.continuousauth.states.TouchEventData
 import com.ca.continuousauth.utils.Logger
+import java.io.BufferedInputStream
+import java.io.BufferedOutputStream
+import java.io.DataInputStream
+import java.io.DataOutputStream
 import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import org.json.JSONArray
-import org.json.JSONObject
 
 class ContinuousAuth(
         private val context: Context,
@@ -60,12 +64,12 @@ class ContinuousAuth(
     private val featureModel by lazy { FeatureModel() }
 
     // --- Sensor Pipeline ---
-    private val sensorScaler by lazy { StandardScaler(context, "sensor_standard_scaler_prefs") }
+    private val sensorScaler by lazy { MinMaxScaler(context, "sensor_min_max_scaler_prefs") }
     private val sensorAuthModel by lazy {
         AuthModel(
                 context = context,
                 modelFileName = AuthConfigManager.config.sensorModelFileName,
-                inputDim = AuthConfigManager.config.sensorFeatureDimension
+                fallbackInputDim = AuthConfigManager.config.sensorFeatureDimension
         )
     }
     private val sensorAuthManager by lazy {
@@ -88,12 +92,12 @@ class ContinuousAuth(
     }
 
     // --- Fusion Pipeline ---
-    private val fusionScaler by lazy { StandardScaler(context, "fusion_standard_scaler_prefs") }
+    private val fusionScaler by lazy { MinMaxScaler(context, "fusion_min_max_scaler_prefs") }
     private val fusionAuthModel by lazy {
         AuthModel(
                 context = context,
                 modelFileName = AuthConfigManager.config.fusionModelFileName,
-                inputDim = AuthConfigManager.config.fusionFeatureDimension
+                fallbackInputDim = AuthConfigManager.config.fusionFeatureDimension
         )
     }
     private val fusionAuthManager by lazy {
@@ -183,7 +187,8 @@ class ContinuousAuth(
                 fusionCollectedList.addAll(state.fusionCollectedList.take(enrollmentSamples))
 
                 _collectedSamplesCount.value = sensorCollectedList.size
-                remainingSamples = (enrollmentSamples - sensorCollectedList.size).coerceAtLeast(0)
+                remainingSamples =
+                        (enrollmentSamples - _collectedSamplesCount.value).coerceAtLeast(0)
 
                 _isPaused.value = remainingSamples!! > 0
             }
@@ -222,18 +227,26 @@ class ContinuousAuth(
                             }
 
                             // -------------------------------
+                            // 🔒 Type-safe feature vectors
+                            // -------------------------------
+                            val sensorVector =
+                                    extractFeatureList(vector.sensorVector) ?: emptyList()
+                            val fusionVector = extractFeatureList(vector.fusionVector)
+                            val touchTime = vector.touchTime
+
+                            // -------------------------------
                             // 🔒 Filter illegal feature vectors
                             // -------------------------------
                             val isSensorValid =
                                     isValidFeatureVector(
-                                            vector.sensorVector,
+                                            sensorVector,
                                             AuthConfigManager.config.sensorFeatureDimension
                                     )
                             val isFusionValid =
-                                    vector.fusionVector != null &&
-                                            vector.touchTime != lastCollectedTouchTime &&
+                                    fusionVector != null &&
+                                            touchTime != lastCollectedTouchTime &&
                                             isValidFeatureVector(
-                                                    vector.fusionVector,
+                                                    fusionVector,
                                                     AuthConfigManager.config.fusionFeatureDimension
                                             )
 
@@ -252,20 +265,23 @@ class ContinuousAuth(
 
                                 // --- Add the sample only if below limit ---
                                 if (needSensor && isSensorValid) {
-                                    sensorCollectedList.add(vector.sensorVector)
+                                    sensorCollectedList.add(sensorVector)
                                 }
 
                                 if (needFusion && isFusionValid) {
-                                    fusionCollectedList.add(vector.fusionVector!!)
-                                    lastCollectedTouchTime = vector.touchTime
+                                    fusionCollectedList.add(fusionVector!!)
+                                    lastCollectedTouchTime = touchTime
                                 }
 
                                 _collectedSamplesCount.value = sensorCollectedList.size
                                 updateProgress()
 
-                                if (sensorCollectedList.size >= enrollmentSamples &&
+                                val isSensorComplete = sensorCollectedList.size >= enrollmentSamples
+                                val isFusionComplete =
+                                        touchEventFlow == null ||
                                                 fusionCollectedList.size >= enrollmentSamples
-                                ) {
+
+                                if (isSensorComplete && isFusionComplete) {
                                     Logger.d("Training sample collection completed.")
                                     _isCollecting.value = false
                                     remainingSamples = 0
@@ -276,9 +292,9 @@ class ContinuousAuth(
                                 }
                             }
 
-                            if (shouldLogFeatureVector) {
+                            if (AuthConfigManager.config.shouldLogFeatureVector) {
                                 Logger.d(
-                                        "Collected sample. SensorDim: ${vector.sensorVector.size}, FusionDim: ${vector.fusionVector?.size}"
+                                        "Collected sample. SensorDim: ${sensorVector.size}, FusionDim: ${fusionVector?.size}"
                                 )
                             }
                         }
@@ -291,9 +307,34 @@ class ContinuousAuth(
                 }
     }
 
+    private fun extractFeatureList(data: Any?): List<Float>? {
+        if (data == null) return null
+        return when (data) {
+            is List<*> -> {
+                if (data.isEmpty()) return emptyList()
+                when (data.first()) {
+                    is Float -> data.filterIsInstance<Float>()
+                    is List<*> ->
+                            data.filterIsInstance<List<*>>().flatMap {
+                                it.filterIsInstance<Float>()
+                            }
+                    else -> null
+                }
+            }
+            is FloatArray -> data.toList()
+            else -> null
+        }
+    }
+
     private fun isValidFeatureVector(vector: List<Float>, expectedSize: Int? = null): Boolean {
         if (vector.isEmpty()) return false
-        if (expectedSize != null && vector.size != expectedSize) return false
+        if (expectedSize != null) {
+            val windowSize = AuthConfigManager.config.windowSize
+            val expected2DSize = expectedSize * windowSize
+            if (vector.size != expectedSize && vector.size != expected2DSize) {
+                return false
+            }
+        }
 
         return vector.all { v -> !v.isNaN() && !v.isInfinite() }
     }
@@ -323,7 +364,9 @@ class ContinuousAuth(
         _isPaused.value = false
         remainingSamples = null
 
-        runBlocking {
+        // Clear collected data without blocking the calling thread.
+        // The job is already cancelled above, so no new items are being added.
+        scope.launch {
             collectionLock.withLock {
                 sensorCollectedList.clear()
                 fusionCollectedList.clear()
@@ -350,31 +393,36 @@ class ContinuousAuth(
     private fun saveCollectionState() {
         scope.launch {
             try {
-                // Snapshot list
+                // Snapshot lists under lock
                 val sensorSnapshot = collectionLock.withLock { sensorCollectedList.toList() }
                 val fusionSnapshot = collectionLock.withLock { fusionCollectedList.toList() }
 
-                val sensorArray = JSONArray()
-                sensorSnapshot.forEach { sample ->
-                    val sampleArray = JSONArray()
-                    sample.forEach { sampleArray.put(it) }
-                    sensorArray.put(sampleArray)
+                // Binary format: much smaller and faster than JSON for large float arrays
+                // Format: [sensorCount][sensorDim][sensor floats...][fusionCount][fusionDim][fusion floats...]
+                withContext(Dispatchers.IO) {
+                    DataOutputStream(BufferedOutputStream(FileOutputStream(stateFile))).use { dos ->
+                        // Write sensor data
+                        dos.writeInt(sensorSnapshot.size)
+                        val sensorDim = sensorSnapshot.firstOrNull()?.size ?: 0
+                        dos.writeInt(sensorDim)
+                        for (sample in sensorSnapshot) {
+                            for (value in sample) {
+                                dos.writeFloat(value)
+                            }
+                        }
+
+                        // Write fusion data
+                        dos.writeInt(fusionSnapshot.size)
+                        val fusionDim = fusionSnapshot.firstOrNull()?.size ?: 0
+                        dos.writeInt(fusionDim)
+                        for (sample in fusionSnapshot) {
+                            for (value in sample) {
+                                dos.writeFloat(value)
+                            }
+                        }
+                    }
                 }
-
-                val fusionArray = JSONArray()
-                fusionSnapshot.forEach { sample ->
-                    val sampleArray = JSONArray()
-                    sample.forEach { sampleArray.put(it) }
-                    fusionArray.put(sampleArray)
-                }
-
-                val stateJson = JSONObject()
-                stateJson.put("sensorCollectedList", sensorArray)
-                stateJson.put("fusionCollectedList", fusionArray)
-
-                // File I/O
-                withContext(Dispatchers.IO) { stateFile.writeText(stateJson.toString()) }
-                Logger.d("Collection state saved.")
+                Logger.d("Collection state saved (binary). Sensor=${sensorSnapshot.size}, Fusion=${fusionSnapshot.size}")
             } catch (e: Exception) {
                 Logger.e("Failed to save collection state: ${e.message}")
             }
@@ -384,39 +432,34 @@ class ContinuousAuth(
     private fun loadCollectionState(): CollectionState? {
         return try {
             if (!stateFile.exists()) return null
-            val text = stateFile.readText()
-            val json = JSONObject(text)
-            val sensorArray =
-                    json.optJSONArray("sensorCollectedList")
-                            ?: json.optJSONArray("collectedList") ?: JSONArray()
-            val sensorCollected = mutableListOf<List<Float>>()
-            for (i in 0 until sensorArray.length()) {
-                val sampleArray = sensorArray.getJSONArray(i)
-                val sample =
-                        MutableList(sampleArray.length()) { j ->
-                            sampleArray.getDouble(j).toFloat()
-                        }
-                sensorCollected.add(sample)
-            }
 
-            val fusionArray = json.optJSONArray("fusionCollectedList") ?: JSONArray()
-            val fusionCollected = mutableListOf<List<Float>>()
-            for (i in 0 until fusionArray.length()) {
-                val sampleArray = fusionArray.getJSONArray(i)
-                val sample =
-                        MutableList(sampleArray.length()) { j ->
-                            sampleArray.getDouble(j).toFloat()
-                        }
-                fusionCollected.add(sample)
-            }
-            CollectionState(
+            DataInputStream(BufferedInputStream(FileInputStream(stateFile))).use { dis ->
+                // Read sensor data
+                val sensorCount = dis.readInt()
+                val sensorDim = dis.readInt()
+                val sensorCollected = ArrayList<List<Float>>(sensorCount)
+                repeat(sensorCount) {
+                    val sample = FloatArray(sensorDim) { dis.readFloat() }
+                    sensorCollected.add(sample.toList())
+                }
+
+                // Read fusion data
+                val fusionCount = dis.readInt()
+                val fusionDim = dis.readInt()
+                val fusionCollected = ArrayList<List<Float>>(fusionCount)
+                repeat(fusionCount) {
+                    val sample = FloatArray(fusionDim) { dis.readFloat() }
+                    fusionCollected.add(sample.toList())
+                }
+
+                CollectionState(
                     sensorCollectedList = sensorCollected,
                     fusionCollectedList = fusionCollected
-            )
+                )
+            }
         } catch (e: Exception) {
             Logger.e("Failed to load collection state: ${e.message}")
-            // If failed, maybe corrupt? delete?
-            // stateFile.delete()
+            stateFile.delete()
             null
         }
     }
@@ -570,8 +613,14 @@ class ContinuousAuth(
                         if (!isActive) return@collect
 
                         try {
+                            // 🔒 Type-safe feature vectors
+                            val sensorVector =
+                                    extractFeatureList(vector.sensorVector) ?: emptyList()
+                            val fusionVector = extractFeatureList(vector.fusionVector)
+                            val touchTime = vector.touchTime
+
                             if (!isValidFeatureVector(
-                                            vector.sensorVector,
+                                            sensorVector,
                                             AuthConfigManager.config.sensorFeatureDimension
                                     )
                             ) {
@@ -583,11 +632,8 @@ class ContinuousAuth(
 
                             // --- Sensor Inference ---
                             val scaledSensor2D =
-                                    featureModel.applyTransform(
-                                            sensorScaler,
-                                            listOf(vector.sensorVector)
-                                    )
-                            val scaledSensor = scaledSensor2D.firstOrNull() ?: vector.sensorVector
+                                    featureModel.applyTransform(sensorScaler, listOf(sensorVector))
+                            val scaledSensor = scaledSensor2D.firstOrNull() ?: sensorVector
                             val sensorResult =
                                     sensorAuthManager.authenticateFeatureVector(scaledSensor)
 
@@ -605,22 +651,21 @@ class ContinuousAuth(
                                 // --- Fusion Inference ---
                                 var fusionResult: AuthVectorResult? = null
                                 val isFusionValid =
-                                        vector.fusionVector != null &&
-                                                vector.touchTime != lastAuthenticatedTouchTime &&
+                                        fusionVector != null &&
+                                                touchTime != lastAuthenticatedTouchTime &&
                                                 isValidFeatureVector(
-                                                        vector.fusionVector,
+                                                        fusionVector,
                                                         AuthConfigManager.config
                                                                 .fusionFeatureDimension
                                                 )
                                 if (isFusionValid) {
-                                    lastAuthenticatedTouchTime = vector.touchTime
+                                    lastAuthenticatedTouchTime = touchTime
                                     val scaledFusion2D =
                                             featureModel.applyTransform(
                                                     fusionScaler,
-                                                    listOf(vector.fusionVector!!)
+                                                    listOf(fusionVector!!)
                                             )
-                                    val scaledFusion =
-                                            scaledFusion2D.firstOrNull() ?: vector.fusionVector
+                                    val scaledFusion = scaledFusion2D.firstOrNull() ?: fusionVector
                                     fusionResult =
                                             fusionAuthManager.authenticateFeatureVector(
                                                     scaledFusion
@@ -721,16 +766,18 @@ class ContinuousAuth(
     fun stopAuthentication() {
         authScope.coroutineContext.cancelChildren()
 
-        // Wait for children? No, fire and forget cancel.
-        // But we need to reset flag. Use invokeOnCompletion on job?
-        // Or closely manage job ref.
-        // Simple: manual reset here assuming cancel is swift.
         isAuthenticating.set(false)
 
         sensorAuthManager.stopAuthentication()
         sensorAuthManager.resetAuthenticationCounters()
         fusionAuthManager.stopAuthentication()
         fusionAuthManager.resetAuthenticationCounters()
+
+        // Flush any unsaved vectors to disk before stopping
+        scope.launch {
+            sensorAuthManager.flushToDisk()
+            fusionAuthManager.flushToDisk()
+        }
         Logger.d("Authentication stopped")
     }
 
@@ -784,6 +831,7 @@ class ContinuousAuth(
                         "Sensor re-enrollment successful. New threshold: ${sensorResult.threshold}"
                 )
                 sensorAuthManager.clearStoredVectors()
+                sensorAuthManager.invalidateCachedState()
                 sensorAuthManager.loadModel()
                 sensorAuthManager.loadThresholdOnce()
 
@@ -808,6 +856,7 @@ class ContinuousAuth(
                                     "Fusion re-enrollment successful. New threshold: ${fusionResult.threshold}"
                             )
                             fusionAuthManager.clearStoredVectors()
+                            fusionAuthManager.invalidateCachedState()
                             fusionAuthManager.loadModel()
                             fusionAuthManager.loadThresholdOnce()
                         } else {
@@ -871,8 +920,10 @@ class ContinuousAuth(
             fusionMetadataFile.takeIf { it.exists() }?.delete()
 
             stopAuthentication()
-            sensorAuthManager.clearStoredVectors()
-            fusionAuthManager.clearStoredVectors()
+            scope.launch {
+                sensorAuthManager.clearStoredVectors()
+                fusionAuthManager.clearStoredVectors()
+            }
 
             _isCheckpointExists.value = checkpointFile.exists()
             _isFusionModelReady.value = false

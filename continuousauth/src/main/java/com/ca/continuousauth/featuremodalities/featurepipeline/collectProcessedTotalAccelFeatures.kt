@@ -6,6 +6,7 @@ import com.ca.continuousauth.featuremodalities.dataprocessing.denoisers.denoiseP
 import com.ca.continuousauth.featuremodalities.dataprocessing.denoisers.denoisercollection.KalmanDenoiser
 import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.FeatureExtractor
 import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.featurePipeline
+import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.featureextractorcollection.RawSequenceFeatureExtractor
 import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.featureextractorcollection.SensorFeatureExtractor
 import com.ca.continuousauth.featuremodalities.dataprocessing.windowing.windowedFlow
 import com.ca.continuousauth.utils.Logger
@@ -24,12 +25,12 @@ fun collectProcessedTotalAccelFeatures(
 
     val denoisers: List<SensorDenoiser> = listOf(KalmanDenoiser())
 
-    val featureExtractors: List<FeatureExtractor> = listOf(SensorFeatureExtractor())
+    val featureExtractors: List<FeatureExtractor> = listOf(RawSequenceFeatureExtractor())
 
     return collector()
-            .windowedFlow(windowSize, windowOverlap)
-            .denoisePipeline(denoisers)
-            .featurePipeline(featureExtractors)
-            .flowOn(dispatcher)
-            .catch { ex -> Logger.e("Error in total accelerometer feature flow", ex) }
+        .windowedFlow(windowSize, windowOverlap)
+        .denoisePipeline(denoisers)
+        .featurePipeline(featureExtractors)
+        .flowOn(dispatcher)
+        .catch { ex -> Logger.e("Error in total accelerometer feature flow", ex) } as Flow<List<Float>>
 }

@@ -74,21 +74,21 @@ private constructor(
     class Builder {
 
         /* -------------------- Data Collection -------------------- */
-        private var sampleCollectionFrequencyHz: Int = 64
+        private var sampleCollectionFrequencyHz: Int = 100
         private var enrollmentSamples: Int = 2000
-        private var windowSize: Int = 128
+        private var windowSize: Int = 200
         private var windowOverlapRatio: Double = 0.5
-        private var shouldLogFeatureVector: Boolean = true
+        private var shouldLogFeatureVector: Boolean = false
         private var maxStoredAuthenticatedVectors: Int = 2000
-        private var emaAlpha: Float = 0.8f
+        private var emaAlpha: Float = 1f
 
         /* -------------------- Model Training --------------------- */
         private var sensorModelFileName: String = "sensor_model.tflite"
         private var fusionModelFileName: String = "fusion_model.tflite"
-        private var trainingEpochs: Int = 300
-        private var trainingBatchSize: Int = 32
-        private var sensorFeatureDimension: Int = 42 // linearAccel(14) + gyro(14) + totalAccel(14)
-        private var fusionFeatureDimension: Int = 56 // sensor(42) + touch(14)
+        private var trainingEpochs: Int = 30
+        private var trainingBatchSize: Int = 16
+        private var sensorFeatureDimension: Int = 12 //  gyro(4) + totalAccel(4) + Magno(4)
+        private var fusionFeatureDimension: Int = 26 // sensor(12) + touch(14)
         private var sensorScoreWeight: Float = 0.5f
         private var fusionScoreWeight: Float = 0.5f
         private var trainValidationRatio: Double = 0.8
@@ -104,7 +104,7 @@ private constructor(
         /* ---------------------- Tensor Names --------------------- */
         private var inputKey: String = "inputs"
         private var outputReconstruction: String = "reconstruction"
-        private var outputLoss: String = "loss"
+        private var outputLoss: String = "loss_ae_total"
         private var outputStatus: String = "status"
         private var outputReconstructionError: String = "anomaly_score"
 
