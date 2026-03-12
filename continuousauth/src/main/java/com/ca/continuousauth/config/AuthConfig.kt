@@ -76,7 +76,7 @@ private constructor(
         /* -------------------- Data Collection -------------------- */
         private var sampleCollectionFrequencyHz: Int = 100
         private var enrollmentSamples: Int = 2000
-        private var windowSize: Int = 200
+        private var windowSize: Int = 100
         private var windowOverlapRatio: Double = 0.5
         private var shouldLogFeatureVector: Boolean = false
         private var maxStoredAuthenticatedVectors: Int = 2000
