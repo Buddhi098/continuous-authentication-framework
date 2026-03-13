@@ -2,8 +2,11 @@ package com.ca.continuousauth.featuremodalities
 
 import android.content.Context
 import com.ca.continuousauth.config.AuthConfigManager
+import com.ca.continuousauth.featuremodalities.dataprocessing.denoisers.denoisercollection.KalmanDenoiser
+import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.featureextractorcollection.RawSequenceFeatureExtractor
 import com.ca.continuousauth.featuremodalities.dataprocessing.scalers.Scaler
 import com.ca.continuousauth.featuremodalities.featurefusion.FusedFeatureBuilder
+import com.ca.continuousauth.featuremodalities.featurepipeline.SensorPipelineConfig
 import com.ca.continuousauth.featuremodalities.featurepipeline.collectSynchronizedSensorFeatures
 import com.ca.continuousauth.featuremodalities.featurepipeline.collectTouchDynamicFeature
 import com.ca.continuousauth.featuremodalities.rawdatacollectors.*
@@ -21,7 +24,6 @@ data class DualFeatureVector(
 )
 
 class FeatureModel {
-
     fun getDualFeatureFlowAtFrequency(
         context: Context,
         touchEventFlow: Flow<TouchEventData>? = null,
@@ -31,6 +33,10 @@ class FeatureModel {
         val sampleRateHz = AuthConfigManager.config.sampleCollectionFrequencyHz
         val windowSize = AuthConfigManager.config.windowSize.toDouble()
         val overlap = AuthConfigManager.config.windowOverlapRatio
+
+        /* ----------------------------------------------------------
+           Calculate Theoretical Authentication Frequency
+        ---------------------------------------------------------- */
         val stepSize = windowSize * (1.0 - overlap)
         val authenticationFrequencyHz = sampleRateHz / stepSize
         Logger.d("Authentication frequency = $authenticationFrequencyHz Hz")
@@ -45,6 +51,25 @@ class FeatureModel {
         val touchCollector = TouchDataCollector(touchEventFlow = touchEventFlow)
 
         /* ----------------------------------------------------------
+           Sensor Pipeline configurations
+        ---------------------------------------------------------- */
+        val sensorConfigs = listOf(
+            SensorPipelineConfig(
+                sensorKey = "gyro",
+                selector = { it.gyro },
+                denoisers = listOf(KalmanDenoiser()),
+                featureExtractors = listOf(RawSequenceFeatureExtractor()) /* output: 2D vector (x , y , x , magnitude) */
+            ),
+
+            SensorPipelineConfig(
+                sensorKey = "totalAccel",
+                selector = { it.accel },
+                denoisers = listOf(KalmanDenoiser()),
+                featureExtractors = listOf(RawSequenceFeatureExtractor()) /* output: 2D vector (x , y , x , magnitude) */
+            )
+        )
+
+        /* ----------------------------------------------------------
            Timestamp-Based Sensor Synchronization
         ---------------------------------------------------------- */
         val synchronizer = SensorTimeSynchronizer(sampleRateHz)
@@ -57,9 +82,9 @@ class FeatureModel {
            Synchronized Sensor Feature Pipeline
         ---------------------------------------------------------- */
         val sensorFeatureFlow: Flow<Any> = collectSynchronizedSensorFeatures(
-            synchronizedFlow, dispatcher
+            synchronizedFlow = synchronizedFlow,
+            sensorConfigs = sensorConfigs
         )
-
         /* ----------------------------------------------------------
            Touch Pipeline (unchanged)
         ---------------------------------------------------------- */
@@ -129,8 +154,9 @@ class FeatureModel {
                         if (rows == 0 || cols == 0) return emptyList()
 
                         val result = ArrayList<Float>(rows * cols)
-                        for (col in 0 until cols) {
-                            for (row in 0 until rows) {
+                        // Row-wise flattening
+                        for (row in 0 until rows) {
+                            for (col in 0 until cols) {
                                 result.add(matrix[row][col])
                             }
                         }
