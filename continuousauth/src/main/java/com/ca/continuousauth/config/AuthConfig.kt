@@ -84,7 +84,7 @@ private constructor(
         /* -------------------- Model Training --------------------- */
         private var sensorModelFileName: String = "sensor_model.tflite"
         private var fusionModelFileName: String = "fusion_model.tflite"
-        private var trainingEpochs: Int = 30
+        private var trainingEpochs: Int = 60
         private var trainingBatchSize: Int = 16
         private var sensorFeatureDimension: Int = 8 // gyro(4) + totalAccel(4) + Magno(4)
         private var fusionFeatureDimension: Int = 22 // sensor(12) + touch(14)

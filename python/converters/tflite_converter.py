@@ -52,14 +52,15 @@ class TFLiteConverter:
 
         # -------------------------------------------------
         # Dynamically determine model input shape
-        # -------------------------------------------------
-        if hasattr(model, "input_shape") and model.input_shape is not None:
-            input_shape = list(model.input_shape)
-            input_shape[0] = BATCH_SIZE  # Replace batch dimension with 1
-        else:
-            raise ValueError("Model input shape is not defined.")
+        # # -------------------------------------------------
+        # if hasattr(model, "input_shape") and model.input_shape is not None:
+        #     input_shape = list(model.input_shape)
+        #     input_shape[0] = BATCH_SIZE  # Replace batch dimension with 1
+        # else:
+        #     raise ValueError("Model input shape is not defined.")
 
         # Build model using dummy input
+        input_shape = (BATCH_SIZE, 8 , 200 , 1)
         dummy_input = tf.zeros(input_shape)
 
         model.train_func(dummy_input)

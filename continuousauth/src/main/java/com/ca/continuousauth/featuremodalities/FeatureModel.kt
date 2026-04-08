@@ -2,6 +2,8 @@ package com.ca.continuousauth.featuremodalities
 
 import android.content.Context
 import com.ca.continuousauth.config.AuthConfigManager
+import com.ca.continuousauth.featuremodalities.dataprocessing.denoisers.denoisercollection.GravityHighPassDenoiser
+import com.ca.continuousauth.featuremodalities.dataprocessing.denoisers.denoisercollection.GravityRemovalDenoiser
 import com.ca.continuousauth.featuremodalities.dataprocessing.denoisers.denoisercollection.KalmanDenoiser
 import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.featureextractorcollection.RawSequenceFeatureExtractor
 import com.ca.continuousauth.featuremodalities.dataprocessing.scalers.Scaler
@@ -57,14 +59,20 @@ class FeatureModel {
             SensorPipelineConfig(
                 sensorKey = "gyro",
                 selector = { it.gyro },
-                denoisers = listOf(KalmanDenoiser()),
+                denoisers = listOf(
+                    KalmanDenoiser()
+                ),
                 featureExtractors = listOf(RawSequenceFeatureExtractor()) /* output: 2D vector (x , y , x , magnitude) */
             ),
 
             SensorPipelineConfig(
                 sensorKey = "totalAccel",
                 selector = { it.accel },
-                denoisers = listOf(KalmanDenoiser()),
+                denoisers = listOf(
+                    KalmanDenoiser() ,
+//                    GravityRemovalDenoiser()
+//                    GravityHighPassDenoiser()
+                ),
                 featureExtractors = listOf(RawSequenceFeatureExtractor()) /* output: 2D vector (x , y , x , magnitude) */
             )
         )

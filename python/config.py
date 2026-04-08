@@ -26,11 +26,11 @@ SEQUENCE_LENGTH = 200
 BATCH_SIZE = 16
 
 # Latent Space
-LATENT_DIM = 128
-NOISE_STDDEV = 0.1           # Noise added to inputs during training
+LATENT_DIM = 32
+NOISE_STDDEV = 0.01           # Noise added to inputs during training
 
 # Loss Weights
-LAMBDA_REC = 50.0           # Weight of MSE reconstruction loss vs GAN loss
+LAMBDA_REC = 10.0           # Weight of MSE reconstruction loss vs GAN loss
 
 # Learning Rates
 LR_ENC_DEC = 1e-4            # Autoencoder learning rate
@@ -48,4 +48,4 @@ LEAKY_RELU_ALPHA = 0.2       # Slope for LeakyReLU layers
 # DUMMY_INPUT_SHAPE = [20, INPUT_DIM, SEQUENCE_LENGTH, 1]
 
 # For LiteRT Model Testing
-TFLITE_FILE_PATH = SENSOR_TFLITE_FILE_PATH
+TEST_TFLITE_FILE_PATH = "D:/research-experiment/model-training-code/sensor_model.tflite"

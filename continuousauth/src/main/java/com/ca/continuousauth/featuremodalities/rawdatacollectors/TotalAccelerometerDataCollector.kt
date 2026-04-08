@@ -79,7 +79,7 @@ class TotalAccelerometerDataCollector(
                 val timestamp = event.timestamp
 
                 // Enforce exact requested frequency (drop events arriving too early)
-                if (timestamp - lastTimestampNs < minPeriodNs) return
+//                if (timestamp - lastTimestampNs < minPeriodNs) return
                 lastTimestampNs = timestamp
 
                 // Read values immediately as 'event' object is reused by Android

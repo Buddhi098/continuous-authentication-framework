@@ -76,7 +76,7 @@ class AuthenticationManager(
     // --------------------------------------------------
     // Authentication
     // --------------------------------------------------
-    fun authenticateFeatureVector(featureVector: List<Float>): AuthVectorResult {
+    fun authenticateFeatureVector(featureVector: List<Float>, rawVector: List<Float> = featureVector): AuthVectorResult {
 
         if (!isModelLoaded) {
             Logger.e("Authentication failed: model not loaded")
@@ -146,7 +146,7 @@ class AuthenticationManager(
 
         if (isAuthenticated) {
             // FIRE AND FORGET: Store vector asynchronously to avoid blocking auth stream
-            coroutineScope.launch { storeAuthenticatedVector(featureVector) }
+            coroutineScope.launch { storeAuthenticatedVector(rawVector) }
         }
 
         // Update cached re-enrollment readiness (non-blocking)

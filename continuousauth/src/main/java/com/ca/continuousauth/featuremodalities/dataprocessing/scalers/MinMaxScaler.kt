@@ -85,6 +85,30 @@ class MinMaxScaler(private val context: Context, private val prefsName: String) 
         }
     }
 
+    /**
+     * Efficiently scales a 1D row-wise flattened array, keeping it row-wise flattened.
+     */
+    @Synchronized
+    fun transformFlattenedRowWise(flattenedRowWise: List<Float>, featureCount: Int): List<Float> {
+        val min = this.min ?: throw IllegalStateException("Scaler has not been fitted yet.")
+        val max = this.max ?: throw IllegalStateException("Scaler has not been fitted yet.")
+        if (min.size != featureCount) {
+             throw IllegalArgumentException("Feature count mismatch: scaler has ${min.size}, expected $featureCount")
+        }
+        val ranges = FloatArray(featureCount) { i -> max[i] - min[i] }
+        val numWindows = flattenedRowWise.size / featureCount
+        val result = FloatArray(flattenedRowWise.size)
+        
+        for (w in 0 until numWindows) {
+            for (f in 0 until featureCount) {
+                val value = flattenedRowWise[w * featureCount + f]
+                val scaled = if (ranges[f] == 0f) 0.5f else (value - min[f]) / ranges[f]
+                result[w * featureCount + f] = scaled
+            }
+        }
+        return result.asList()
+    }
+
     @Synchronized
     override fun save() {
         saveToPrefs()

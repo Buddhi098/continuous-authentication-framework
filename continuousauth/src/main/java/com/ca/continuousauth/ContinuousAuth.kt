@@ -491,12 +491,16 @@ class ContinuousAuth(
         return result
     }
 
-    fun mergeFeatureSetsColumnWiseFlattened(
+    fun mergeFeatureSetsFlattened(
         sensorSnapshot: List<List<Float>>,
-        sequenceLength: Int
+        sequenceLength: Int,
+        mergeMode: String = "row" // Default is column-wise
     ): List<List<Float>> {
 
-        if (!(sensorSnapshot.size > enrollmentSamples || sensorSnapshot.size == AuthConfigManager.config.windowSize)) {
+        val numFeatures = sensorSnapshot.firstOrNull()?.size ?: return sensorSnapshot
+        if (numFeatures != AuthConfigManager.config.sensorFeatureDimension &&
+            numFeatures != AuthConfigManager.config.fusionFeatureDimension
+        ) {
             return sensorSnapshot
         }
 
@@ -506,24 +510,32 @@ class ContinuousAuth(
             // Take next `sequenceLength` rows as a block
             val block = sensorSnapshot.subList(i, (i + sequenceLength).coerceAtMost(sensorSnapshot.size))
             val numFeatures = block.first().size
-            val mergedBlock = MutableList(numFeatures) { mutableListOf<Float>() }
-
-            // Column-wise merge
-            for (row in block) {
-                for (f in 0 until numFeatures) {
-                    mergedBlock[f].add(row[f])
-                }
-            }
-
-            // Flatten the merged block (3D -> 2D) directly into result
             val flatBlock = mutableListOf<Float>()
-            for (row in mergedBlock) {
-                flatBlock.addAll(row)
-            }
-            result.add(flatBlock)
 
+            if (mergeMode.lowercase() == "column") {
+                // Column-wise merge
+                val mergedBlock = MutableList(numFeatures) { mutableListOf<Float>() }
+                for (row in block) {
+                    for (f in 0 until numFeatures) {
+                        mergedBlock[f].add(row[f])
+                    }
+                }
+                for (col in mergedBlock) {
+                    flatBlock.addAll(col)
+                }
+            } else if (mergeMode.lowercase() == "row") {
+                // Row-wise merge (simply flatten rows)
+                for (row in block) {
+                    flatBlock.addAll(row)
+                }
+            } else {
+                throw IllegalArgumentException("mergeMode must be either 'column' or 'row'")
+            }
+
+            result.add(flatBlock)
             i += sequenceLength
         }
+
         return result
     }
 
@@ -559,7 +571,7 @@ class ContinuousAuth(
                         withContext(Dispatchers.Default) {
                             featureModel.applyFitTransform(sensorScaler, sensorSnapshot)
                         }
-                transformedSensorList = mergeFeatureSetsColumnWiseFlattened(transformedSensorList, AuthConfigManager.config.windowSize)
+                transformedSensorList = mergeFeatureSetsFlattened(transformedSensorList, AuthConfigManager.config.windowSize)
                 val sensorResult = sensorEnrollmentManager.enroll(transformedSensorList)
 
                 if (!sensorResult.success) {
@@ -588,7 +600,7 @@ class ContinuousAuth(
                             withContext(Dispatchers.Default) {
                                 featureModel.applyFitTransform(fusionScaler, fusionSnapshot)
                             }
-                    transformedFusionList = mergeFeatureSetsColumnWiseFlattened(transformedFusionList, AuthConfigManager.config.windowSize)
+                    transformedFusionList = mergeFeatureSetsFlattened(transformedFusionList, AuthConfigManager.config.windowSize)
                     val fusionResult = fusionEnrollmentManager.enroll(transformedFusionList)
                     
                     fusionAvailable = fusionResult.success
@@ -699,19 +711,11 @@ class ContinuousAuth(
                             val startTime = System.nanoTime()
 
                             // --- Sensor Inference ---
-                            val reshapedSensor = reshapeSnapshotChunks(
-                                listOf(sensorVector),
-                                AuthConfigManager.config.sensorFeatureDimension
+                            val scaledSensor = sensorScaler.transformFlattenedRowWise(
+                                sensorVector, AuthConfigManager.config.sensorFeatureDimension
                             )
-                            val scaledSensor2D =
-                                    featureModel.applyTransform(sensorScaler, reshapedSensor)
-                            val mergedScaledSensor = mergeFeatureSetsColumnWiseFlattened(
-                                scaledSensor2D,
-                                AuthConfigManager.config.windowSize
-                            )
-                            val scaledSensor = mergedScaledSensor.firstOrNull() ?: sensorVector
                             val sensorResult =
-                                    sensorAuthManager.authenticateFeatureVector(scaledSensor)
+                                    sensorAuthManager.authenticateFeatureVector(scaledSensor, sensorVector)
 
                             val sensorScore = sensorResult.score
                             val sensorThreshold = sensorResult.threshold
@@ -736,23 +740,12 @@ class ContinuousAuth(
                                                 )
                                 if (isFusionValid) {
                                     lastAuthenticatedTouchTime = touchTime
-                                    val reshapedFusion = reshapeSnapshotChunks(
-                                        listOf(fusionVector!!),
-                                        AuthConfigManager.config.fusionFeatureDimension
+                                    val scaledFusion = fusionScaler.transformFlattenedRowWise(
+                                        fusionVector!!, AuthConfigManager.config.fusionFeatureDimension
                                     )
-                                    val scaledFusion2D =
-                                            featureModel.applyTransform(
-                                                    fusionScaler,
-                                                    reshapedFusion
-                                            )
-                                    val mergedScaledFusion = mergeFeatureSetsColumnWiseFlattened(
-                                        scaledFusion2D,
-                                        AuthConfigManager.config.windowSize
-                                    )
-                                    val scaledFusion = mergedScaledFusion.firstOrNull() ?: fusionVector
                                     fusionResult =
                                             fusionAuthManager.authenticateFeatureVector(
-                                                    scaledFusion
+                                                    scaledFusion, fusionVector
                                             )
                                 }
 
@@ -906,7 +899,7 @@ class ContinuousAuth(
                 var transformedSensorList = withContext(Dispatchers.Default) {
                     featureModel.applyFitTransform(sensorScaler, reshapedSensors)
                 }
-                transformedSensorList = mergeFeatureSetsColumnWiseFlattened(transformedSensorList, AuthConfigManager.config.windowSize)
+                transformedSensorList = mergeFeatureSetsFlattened(transformedSensorList, AuthConfigManager.config.windowSize)
                 val sensorResult = sensorEnrollmentManager.enroll(transformedSensorList)
 
                 if (!sensorResult.success) {
@@ -940,7 +933,7 @@ class ContinuousAuth(
                         var transformedFusionList = withContext(Dispatchers.Default) {
                             featureModel.applyFitTransform(fusionScaler, reshapedFusions)
                         }
-                        transformedFusionList = mergeFeatureSetsColumnWiseFlattened(transformedFusionList, AuthConfigManager.config.windowSize)
+                        transformedFusionList = mergeFeatureSetsFlattened(transformedFusionList, AuthConfigManager.config.windowSize)
 
                         val fusionResult = fusionEnrollmentManager.enroll(transformedFusionList)
 
