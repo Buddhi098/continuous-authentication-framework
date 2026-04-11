@@ -166,7 +166,7 @@ class AuthModel(
 
     fun runTrainingSession(
         trainingData: List<List<Float>>,
-        epochs: Int = AuthConfigManager.config.trainingEpochs,
+        epochs: Int ,
         requestedBatchSize: Int = AuthConfigManager.config.trainingBatchSize
     ) {
         rwLock.write {
@@ -182,7 +182,7 @@ class AuthModel(
 
             // 1. Validate Input Data Shape
             val actualSampleElements = trainingData.first().size
-            if (actualSampleElements != inferenceSampleElements) {
+            if (actualSampleElements != inferenceSampleElements && actualSampleElements != fallbackInputDim) {
                 Logger.e("Shape mismatch: Training data has $actualSampleElements elements per sample, " +
                         "but model expects $inferenceSampleElements elements. Are your features properly flattened?")
                 return
@@ -332,7 +332,7 @@ class AuthModel(
             val reconBuffer = inferenceReconstructionBuffer ?: return null
             val errBuffer = inferenceErrorBuffer ?: return null
 
-            if (featureVector.size != inferenceSampleElements) {
+            if (featureVector.size != inferenceSampleElements && featureVector.size != fallbackInputDim) {
                 Logger.e("Inference failed: Vector size ${featureVector.size} != expected $inferenceSampleElements")
                 return null
             }

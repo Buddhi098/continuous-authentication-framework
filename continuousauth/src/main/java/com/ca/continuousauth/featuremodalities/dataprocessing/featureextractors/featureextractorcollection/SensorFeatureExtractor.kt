@@ -3,17 +3,13 @@ package com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors
 import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.FeatureExtractor
 import kotlin.math.*
 
-/**
- * Lightweight Sensor Feature Extractor (14 Features - Pose Invariant) Optimized for Continuous
- * Authentication & TFLite deployment.
- */
 class SensorFeatureExtractor(private val samplingRate: Int = 50) : FeatureExtractor {
 
     private val dt = 1.0f / samplingRate
 
     override fun extract(window: List<Pair<Long, List<Float>>>): List<Float> {
         val n = window.size
-        if (n < 2) return emptyList()
+        if (n < 5) return emptyList()
 
         val x = FloatArray(n)
         val y = FloatArray(n)
@@ -27,149 +23,151 @@ class SensorFeatureExtractor(private val samplingRate: Int = 50) : FeatureExtrac
         }
 
         // -----------------------------
-        // 1. Pose-Invariant Metrics
+        // 1. Magnitude (Pose Invariant)
         // -----------------------------
-        // SVM (Signal Vector Magnitude)
-        val svm = FloatArray(n) { i -> sqrt(x[i] * x[i] + y[i] * y[i] + z[i] * z[i]) }
-
-        // Jerk Magnitude (Derivative of Acceleration)
-        val jerk = FloatArray(n)
-        jerk[0] = 0f // First element has no derivative
-        for (i in 1 until n) {
-            val dx = x[i] - x[i - 1]
-            val dy = y[i] - y[i - 1]
-            val dz = z[i] - z[i - 1]
-            jerk[i] = sqrt(dx * dx + dy * dy + dz * dz)
+        val mag = FloatArray(n) { i ->
+            sqrt(x[i]*x[i] + y[i]*y[i] + z[i]*z[i])
         }
 
-        val signals = listOf(svm, jerk)
+        // -----------------------------
+        // 2. Derivatives
+        // -----------------------------
+        val velocity = derivative(mag)
+        val jerk = derivative(velocity)
 
         // -----------------------------
-        // 2. Time-Domain Features
+        // 3. Feature Vector (16)
         // -----------------------------
-        val std = signals.map { standardDeviation(it) }
-        val rms = signals.map { rootMeanSquare(it) }
-        val skewness = signals.map { skewness(it) }
-        val kurtosis = signals.map { kurtosis(it) }
-        val energy = signals.map { energy(it) }
+        val f = ArrayList<Float>(16)
 
-        // -----------------------------
-        // 3. Frequency-Domain Features
-        // -----------------------------
-        val centeredSignals = signals.map { center(it) }
-        val fftMagnitudes = centeredSignals.map { computeFFTMagnitude(it) }
-        val fftFreqs = rfftFreq(n, dt)
+        // ---- Magnitude (4)
+        f.add(rms(mag))
+        f.add(std(mag))
+        f.add(mad(mag))
+        f.add(peakToPeak(mag))
 
-        val dominantFreq =
-                fftMagnitudes.map { mags ->
-                    val idx = mags.indices.maxByOrNull { mags[it] } ?: 0
-                    fftFreqs[idx]
-                }
+        // ---- Velocity (2)
+        f.add(rms(velocity))
+        f.add(std(velocity))
 
-        val spectralEntropy =
-                fftMagnitudes.map { mags ->
-                    val sum = mags.sum() + 1e-8f
-                    var entropy = 0f
-                    for (m in mags) {
-                        val p = m / sum
-                        if (p > 0f) entropy += p * ln(p)
-                    }
-                    -entropy
-                }
+        // ---- Jerk (3)
+        f.add(rms(jerk))
+        f.add(energy(jerk))
+        f.add(std(jerk))
 
-        // -----------------------------
-        // 4. Final Feature Vector (14)
-        // -----------------------------
-        val features = ArrayList<Float>(14)
+        // ---- Rhythm (2)
+        f.add(zeroCrossingRate(mag))
+        f.add(zeroCrossingRate(jerk))
 
-        // 2 signals * 5 time-domain = 10 features
-        features.addAll(std)
-        features.addAll(rms)
-        features.addAll(skewness)
-        features.addAll(kurtosis)
-        features.addAll(energy)
+        // ---- Cross-axis correlation (3)
+        f.add(correlation(x, y))
+        f.add(correlation(y, z))
+        f.add(correlation(z, x))
 
-        // 2 signals * 2 frequency-domain = 4 features
-        features.addAll(dominantFreq)
-        features.addAll(spectralEntropy)
+        // ---- Periodicity (1)
+        f.add(autoCorrelationPeak(mag))
 
-        return features
+        // ---- Robust variability (1)
+        f.add(mad(jerk))
+
+        return f
     }
 
     // =====================================================
-    // Helper Functions
+    // Derivative
     // =====================================================
-
-    private fun center(data: FloatArray): FloatArray {
-        val mean = data.average().toFloat()
-        return FloatArray(data.size) { i -> data[i] - mean }
-    }
-
-    private fun standardDeviation(data: FloatArray): Float {
-        val mean = data.average()
-        val sum = data.sumOf { (it - mean).pow(2) }
-        return sqrt(sum / data.size).toFloat()
-    }
-
-    private fun rootMeanSquare(data: FloatArray): Float {
-        val meanSq = data.sumOf { (it * it).toDouble() } / data.size
-        return sqrt(meanSq).toFloat()
-    }
-
-    private fun energy(data: FloatArray): Float {
-        return data.sumOf { (it * it).toDouble() }.toFloat()
-    }
-
-    private fun skewness(data: FloatArray): Float {
-        val n = data.size
-        if (n < 3) return 0f
-        val mean = data.average()
-        val m2 = data.sumOf { (it - mean).pow(2) } / n
-        val m3 = data.sumOf { (it - mean).pow(3) } / n
-        val s2 = sqrt(m2)
-        if (s2 == 0.0) return 0f
-        return (m3 / (s2.pow(3))).toFloat()
-    }
-
-    private fun kurtosis(data: FloatArray): Float {
-        val n = data.size
-        if (n < 4) return 0f
-        val mean = data.average()
-        val m2 = data.sumOf { (it - mean).pow(2) } / n
-        val m4 = data.sumOf { (it - mean).pow(4) } / n
-        if (m2 == 0.0) return 0f
-        return (m4 / (m2.pow(2)) - 3.0).toFloat()
-    }
-
-    // =====================================================
-    // FFT (Magnitude Only)
-    // =====================================================
-
-    private fun rfftFreq(n: Int, dt: Float): FloatArray {
-        val size = (n / 2) + 1
-        val freqs = FloatArray(size)
-        val factor = 1f / (n * dt)
-        for (i in 0 until size) {
-            freqs[i] = i * factor
+    private fun derivative(data: FloatArray): FloatArray {
+        val out = FloatArray(data.size)
+        out[0] = 0f
+        for (i in 1 until data.size) {
+            out[i] = (data[i] - data[i - 1]) / dt
         }
-        return freqs
+        return out
     }
 
-    private fun computeFFTMagnitude(input: FloatArray): FloatArray {
-        val n = input.size
-        val outputSize = (n / 2) + 1
-        val magnitudes = FloatArray(outputSize)
+    // =====================================================
+    // Stats
+    // =====================================================
+    private fun mean(data: FloatArray): Float =
+        data.average().toFloat()
 
-        for (k in 0 until outputSize) {
-            var real = 0.0
-            var imag = 0.0
-            for (t in 0 until n) {
-                val angle = -2.0 * PI * k * t / n
-                real += input[t] * cos(angle)
-                imag += input[t] * sin(angle)
+    private fun std(data: FloatArray): Float {
+        val m = mean(data)
+        val variance = data.sumOf { (it - m).toDouble().pow(2.0) } / data.size
+        return sqrt(variance).toFloat()
+    }
+
+    private fun rms(data: FloatArray): Float =
+        sqrt(data.sumOf { (it * it).toDouble() } / data.size).toFloat()
+
+    private fun energy(data: FloatArray): Float =
+        data.sumOf { (it * it).toDouble() }.toFloat()
+
+    private fun median(data: FloatArray): Float {
+        val sorted = data.sorted()
+        val mid = sorted.size / 2
+        return if (sorted.size % 2 == 0)
+            ((sorted[mid - 1] + sorted[mid]) / 2f)
+        else sorted[mid]
+    }
+
+    private fun mad(data: FloatArray): Float {
+        val med = median(data)
+        return median(FloatArray(data.size) { i -> abs(data[i] - med) })
+    }
+
+    private fun peakToPeak(data: FloatArray): Float =
+        (data.maxOrNull() ?: 0f) - (data.minOrNull() ?: 0f)
+
+    private fun zeroCrossingRate(data: FloatArray): Float {
+        var count = 0
+        for (i in 1 until data.size) {
+            if ((data[i] >= 0 && data[i - 1] < 0) ||
+                (data[i] < 0 && data[i - 1] >= 0)) {
+                count++
             }
-            magnitudes[k] = sqrt(real * real + imag * imag).toFloat()
         }
-        return magnitudes
+        return count.toFloat() / data.size
+    }
+
+    // =====================================================
+    // Correlation
+    // =====================================================
+    private fun correlation(a: FloatArray, b: FloatArray): Float {
+        val meanA = mean(a)
+        val meanB = mean(b)
+
+        var num = 0.0
+        var denomA = 0.0
+        var denomB = 0.0
+
+        for (i in a.indices) {
+            val da = a[i] - meanA
+            val db = b[i] - meanB
+            num += da * db
+            denomA += da * da
+            denomB += db * db
+        }
+
+        val denom = sqrt(denomA * denomB)
+        return if (denom == 0.0) 0f else (num / denom).toFloat()
+    }
+
+    // =====================================================
+    // Auto-correlation
+    // =====================================================
+    private fun autoCorrelationPeak(signal: FloatArray): Float {
+        val n = signal.size
+        var maxCorr = 0f
+
+        for (lag in 1 until n / 2) {
+            var sum = 0f
+            for (i in 0 until n - lag) {
+                sum += signal[i] * signal[i + lag]
+            }
+            if (sum > maxCorr) maxCorr = sum
+        }
+
+        return maxCorr / n
     }
 }

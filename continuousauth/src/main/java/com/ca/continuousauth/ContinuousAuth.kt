@@ -6,6 +6,7 @@ import com.ca.continuousauth.authengine.EnrollmentManager
 import com.ca.continuousauth.authengine.WeightedScoreFusionStrategy
 import com.ca.continuousauth.authmodel.AuthModel
 import com.ca.continuousauth.config.AuthConfigManager
+import com.ca.continuousauth.data.ReEnrollmentDataManager
 import com.ca.continuousauth.featuremodalities.FeatureModel
 import com.ca.continuousauth.featuremodalities.dataprocessing.scalers.MinMaxScaler
 import com.ca.continuousauth.states.AuthVectorResult
@@ -50,11 +51,23 @@ class ContinuousAuth(
     val thresholdFile = File(context.filesDir, "sensor_auth_threshold.bin")
     val metadataFile = File(context.filesDir, "sensor_auth_metadata.json")
     val storedVectorsFile = File(context.filesDir, "sensor_stored_vectors.bin")
+    private val reEnrollmentManager by lazy {
+        ReEnrollmentDataManager(
+            storedVectorsFile = storedVectorsFile,
+            requiredVectors = AuthConfigManager.config.maxStoredAuthenticatedVectors
+        )
+    }
 
     val fusionCheckpointFile = File(context.filesDir, "fusion_auth_model.chk")
     val fusionThresholdFile = File(context.filesDir, "fusion_auth_threshold.bin")
     val fusionMetadataFile = File(context.filesDir, "fusion_auth_metadata.json")
     val fusionStoredVectorsFile = File(context.filesDir, "fusion_stored_vectors.bin")
+    private val reEnrollmentManagerFusion by lazy {
+        ReEnrollmentDataManager(
+            storedVectorsFile = fusionStoredVectorsFile,
+            requiredVectors = AuthConfigManager.config.maxStoredAuthenticatedVectors
+        )
+    }
 
     // -----------------------------
     // Core class objects
@@ -62,6 +75,7 @@ class ContinuousAuth(
     private val stateFile = File(context.filesDir, "collect_state.json")
 
     private val featureModel by lazy { FeatureModel() }
+
 
     // --- Sensor Pipeline ---
     private val sensorScaler by lazy { MinMaxScaler(context, "sensor_min_max_scaler_prefs") }
@@ -72,16 +86,15 @@ class ContinuousAuth(
                 fallbackInputDim = AuthConfigManager.config.sensorFeatureDimension
         )
     }
-    private val sensorAuthManager by lazy {
+    private val sensorAuthManager =
         AuthenticationManager(
                 context = context,
                 authModel = sensorAuthModel,
                 checkpointFile = checkpointFile,
                 thresholdFile = thresholdFile,
-                storedVectorsFile = storedVectorsFile,
-                maxStoredVectors = AuthConfigManager.config.maxStoredAuthenticatedVectors
+                reEnrollmentManager = reEnrollmentManager,
         )
-    }
+
     private val sensorEnrollmentManager by lazy {
         EnrollmentManager(
                 authModel = sensorAuthModel,
@@ -100,16 +113,14 @@ class ContinuousAuth(
                 fallbackInputDim = AuthConfigManager.config.fusionFeatureDimension
         )
     }
-    private val fusionAuthManager by lazy {
+    private val fusionAuthManager =
         AuthenticationManager(
                 context = context,
                 authModel = fusionAuthModel,
                 checkpointFile = fusionCheckpointFile,
                 thresholdFile = fusionThresholdFile,
-                storedVectorsFile = fusionStoredVectorsFile,
-                maxStoredVectors = AuthConfigManager.config.maxStoredAuthenticatedVectors
+                reEnrollmentManager = reEnrollmentManagerFusion,
         )
-    }
     private val fusionEnrollmentManager by lazy {
         EnrollmentManager(
                 authModel = fusionAuthModel,
@@ -466,26 +477,34 @@ class ContinuousAuth(
 
     fun reshapeSnapshotChunks(
         sensorSnapshot: List<List<Float>>,
-        numFeatures: Int
+        numFeatures: Int,
+        inputDim: String
     ): List<List<Float>> {
 
-        // If empty, return as is
+        // Return empty safely
         if (sensorSnapshot.isEmpty()) return sensorSnapshot
 
-        // Check only the first row
-        if (sensorSnapshot.first().size == numFeatures) {
+        // Validate inputDim
+        require(inputDim == "1D" || inputDim == "2D") {
+            "inputDim must be either '1D' or '2D'"
+        }
+
+        // ✅ 1D → flatten each sample (no chunking)
+        if (inputDim == "1D") {
             return sensorSnapshot
         }
 
+        // ✅ 2D → chunk into [timeSteps, features]
         val result = mutableListOf<List<Float>>()
 
         for (sample in sensorSnapshot) {
             var i = 0
-            while (i < sample.size) {
-                val end = (i + numFeatures).coerceAtMost(sample.size)
-                result.add(sample.subList(i, end))
+            while (i + numFeatures <= sample.size) {
+                val chunk = sample.subList(i, i + numFeatures)
+                result.add(chunk)
                 i += numFeatures
             }
+            // NOTE: ignoring leftover values (incomplete chunk)
         }
 
         return result
@@ -494,13 +513,14 @@ class ContinuousAuth(
     fun mergeFeatureSetsFlattened(
         sensorSnapshot: List<List<Float>>,
         sequenceLength: Int,
-        mergeMode: String = "row" // Default is column-wise
+        inputDim: String,
+        mergeMode: String = "row"
     ): List<List<Float>> {
 
         val numFeatures = sensorSnapshot.firstOrNull()?.size ?: return sensorSnapshot
-        if (numFeatures != AuthConfigManager.config.sensorFeatureDimension &&
-            numFeatures != AuthConfigManager.config.fusionFeatureDimension
-        ) {
+
+        // ✅ 1D → flatten each sample (no chunking)
+        if (inputDim == "1D") {
             return sensorSnapshot
         }
 
@@ -552,7 +572,7 @@ class ContinuousAuth(
                 var sensorSnapshot = collectionLock.withLock { sensorCollectedList.toList() }
                 var fusionSnapshot = collectionLock.withLock { fusionCollectedList.toList() }
 
-                if (sensorSnapshot.size < 10) {
+                if (sensorSnapshot.size < AuthConfigManager.config.minSensorSamples) {
                     withContext(Dispatchers.Main) {
                         onComplete(
                                 EnrollmentResult(
@@ -566,13 +586,16 @@ class ContinuousAuth(
                 }
 
                 // ---- Sensor Enrollment (always required) ----
-                sensorSnapshot = reshapeSnapshotChunks(sensorSnapshot, AuthConfigManager.config.sensorFeatureDimension )
+                sensorSnapshot = reshapeSnapshotChunks(sensorSnapshot, AuthConfigManager.config.sensorFeatureDimension,
+                    AuthConfigManager.config.sensorInputDim )
                 var transformedSensorList =
                         withContext(Dispatchers.Default) {
                             featureModel.applyFitTransform(sensorScaler, sensorSnapshot)
                         }
-                transformedSensorList = mergeFeatureSetsFlattened(transformedSensorList, AuthConfigManager.config.windowSize)
-                val sensorResult = sensorEnrollmentManager.enroll(transformedSensorList)
+                transformedSensorList = mergeFeatureSetsFlattened(transformedSensorList, AuthConfigManager.config.windowSize,
+                    AuthConfigManager.config.sensorInputDim)
+                val sensorResult = sensorEnrollmentManager.enroll(transformedSensorList ,
+                    AuthConfigManager.config.sensorTrainingEpochs)
 
                 if (!sensorResult.success) {
                     _isCheckpointExists.value = false
@@ -595,14 +618,17 @@ class ContinuousAuth(
                 var fusionThreshold: Float? = null
 
                 if (fusionSnapshot.size >= minFusionSamples) {
-                    fusionSnapshot = reshapeSnapshotChunks(fusionSnapshot, AuthConfigManager.config.fusionFeatureDimension )
+                    fusionSnapshot = reshapeSnapshotChunks(fusionSnapshot, AuthConfigManager.config.fusionFeatureDimension,
+                        AuthConfigManager.config.fusionInputDim )
                     var transformedFusionList =
                             withContext(Dispatchers.Default) {
                                 featureModel.applyFitTransform(fusionScaler, fusionSnapshot)
                             }
-                    transformedFusionList = mergeFeatureSetsFlattened(transformedFusionList, AuthConfigManager.config.windowSize)
-                    val fusionResult = fusionEnrollmentManager.enroll(transformedFusionList)
-                    
+                    transformedFusionList = mergeFeatureSetsFlattened(transformedFusionList, AuthConfigManager.config.windowSize,
+                        AuthConfigManager.config.fusionInputDim)
+                    val fusionResult = fusionEnrollmentManager.enroll(transformedFusionList,
+                        AuthConfigManager.config.fusionTrainingEpochs)
+
                     fusionAvailable = fusionResult.success
                     if (fusionAvailable) {
                         fusionThreshold = fusionResult.threshold
@@ -661,11 +687,13 @@ class ContinuousAuth(
         }
 
         try {
+            // --- Load Models ---
             sensorAuthManager.loadModel()
             sensorAuthManager.loadThresholdOnce()
             sensorScaler.load()
 
             val useFusion = _isFusionModelReady.value && fusionCheckpointFile.exists()
+            Logger.d(" Huuuuuuuuu ${useFusion}")
             if (useFusion) {
                 fusionAuthManager.loadModel()
                 fusionAuthManager.loadThresholdOnce()
@@ -673,154 +701,132 @@ class ContinuousAuth(
             }
 
             Logger.d(
-                    "Authentication starting. Mode: ${if (useFusion) "Multi-modal (Sensor + Touch)" else "Sensor-only"}"
+                "Authentication starting. Mode: ${if (useFusion) "Fusion-first (fallback: Sensor)" else "Sensor-only"}"
             )
 
-            val scoreFusionStrategy =
-                    WeightedScoreFusionStrategy(
-                            sensorWeight = AuthConfigManager.config.sensorScoreWeight,
-                            fusionWeight = AuthConfigManager.config.fusionScoreWeight
-                    )
-
-            // Get feature flow
             val featureFlow = featureModel.getDualFeatureFlowAtFrequency(context, touchEventFlow)
 
-            // Launch a coroutine to collect the flow asynchronously
             authScope.launch {
                 var lastAuthenticatedTouchTime = -1L
+
+                // --- Counters for Weighted Confidence ---
+                var sensorPass = 0
+                var sensorTotal = 0
+                var fusionPass = 0
+                var fusionTotal = 0
+
                 try {
                     featureFlow.collect { vector ->
                         if (!isActive) return@collect
 
                         try {
-                            // 🔒 Type-safe feature vectors
-                            val sensorVector =
-                                    extractFeatureList(vector.sensorVector) ?: emptyList()
+                            val startTime = System.nanoTime()
+
+                            val sensorVector = extractFeatureList(vector.sensorVector) ?: emptyList()
                             val fusionVector = extractFeatureList(vector.fusionVector)
                             val touchTime = vector.touchTime
 
-                            if (!isValidFeatureVector(
-                                            sensorVector,
-                                            AuthConfigManager.config.sensorFeatureDimension
-                                    )
+                            // --- Decide which vector to use ---
+                            val authResult: AuthVectorResult = if (useFusion &&
+                                fusionVector != null &&
+                                touchTime != lastAuthenticatedTouchTime &&
+                                isValidFeatureVector(fusionVector, AuthConfigManager.config.fusionFeatureDimension)
                             ) {
-                                Logger.d("Dropped invalid sensor vector during auth")
-                                return@collect
-                            }
+                                // --- FUSION PIPELINE ---
+                                lastAuthenticatedTouchTime = touchTime
 
-                            val startTime = System.nanoTime()
+                                val fusionSnapshot = reshapeSnapshotChunks(
+                                    listOf(fusionVector),
+                                    AuthConfigManager.config.fusionFeatureDimension,
+                                    AuthConfigManager.config.fusionInputDim
+                                )
 
-                            // --- Sensor Inference ---
-                            val scaledSensor = sensorScaler.transformFlattenedRowWise(
-                                sensorVector, AuthConfigManager.config.sensorFeatureDimension
-                            )
-                            val sensorResult =
-                                    sensorAuthManager.authenticateFeatureVector(scaledSensor, sensorVector)
-
-                            val sensorScore = sensorResult.score
-                            val sensorThreshold = sensorResult.threshold
-
-                            if (sensorScore == null || sensorThreshold == null) {
-                                Logger.e("Sensor inference returned null score or threshold.")
-                                return@collect
-                            }
-
-                            val finalAuthResult: AuthVectorResult
-
-                            if (useFusion) {
-                                // --- Fusion Inference ---
-                                var fusionResult: AuthVectorResult? = null
-                                val isFusionValid =
-                                        fusionVector != null &&
-                                                touchTime != lastAuthenticatedTouchTime &&
-                                                isValidFeatureVector(
-                                                        fusionVector,
-                                                        AuthConfigManager.config
-                                                                .fusionFeatureDimension
-                                                )
-                                if (isFusionValid) {
-                                    lastAuthenticatedTouchTime = touchTime
-                                    val scaledFusion = fusionScaler.transformFlattenedRowWise(
-                                        fusionVector!!, AuthConfigManager.config.fusionFeatureDimension
-                                    )
-                                    fusionResult =
-                                            fusionAuthManager.authenticateFeatureVector(
-                                                    scaledFusion, fusionVector
-                                            )
+                                var transformedFusion = withContext(Dispatchers.Default) {
+                                    featureModel.applyTransform(fusionScaler, fusionSnapshot)
                                 }
 
-                                if (isFusionValid && fusionResult != null) {
-                                    // --- Fused Vector Path ---
-                                    // Both sensor and fusion scores are available;
-                                    // compare the weighted fused score against the
-                                    // weighted fused threshold.
-                                    val fusionScore = fusionResult.score
-                                    val fusionThreshold = fusionResult.threshold
+                                transformedFusion = mergeFeatureSetsFlattened(
+                                    transformedFusion,
+                                    AuthConfigManager.config.windowSize,
+                                    AuthConfigManager.config.fusionInputDim
+                                )
 
-                                    val finalScore =
-                                            scoreFusionStrategy.fuseScores(sensorScore, fusionScore)
-                                    val finalThreshold =
-                                            scoreFusionStrategy.fuseScores(
-                                                    sensorThreshold,
-                                                    fusionThreshold
-                                            )
+                                val fusionResultMap = fusionAuthManager.authenticateFeatureVector(
+                                    transformedFusion.first(),
+                                    fusionVector
+                                )
 
-                                    val isAuthenticated = finalScore < finalThreshold
+                                fusionTotal++
+                                if (fusionResultMap["isAuthenticated"] as Boolean) fusionPass++
 
-                                    Logger.d(
-                                            "Using FUSED threshold ($finalThreshold) " +
-                                                    "for fused vector. Score: $finalScore"
+                                Logger.d("Using FUSION result")
+
+                                AuthVectorResult(
+                                    authType = "fusion",
+                                    isAuthenticated = fusionResultMap["isAuthenticated"] as Boolean,
+                                    authenticationScore = fusionResultMap["score"] as Float,
+                                    weightedConfidence = calculateWeightedConfidence(
+                                        sensorPass, sensorTotal, fusionPass, fusionTotal
                                     )
-
-                                    finalAuthResult =
-                                            AuthVectorResult(
-                                                    isAuthenticated = isAuthenticated,
-                                                    score = finalScore,
-                                                    threshold = finalThreshold,
-                                                    authPercentage = sensorResult.authPercentage,
-                                                    totalAuthentications =
-                                                            sensorResult.totalAuthentications
-                                            )
-                                } else {
-                                    // --- Sensor-Only Vector Path (fusion model is
-                                    //     loaded but no valid fusion vector this frame) ---
-                                    // Only sensor data is available; compare the
-                                    // sensor score directly against the sensor-specific
-                                    // threshold. Do NOT apply fusion weights.
-                                    val isAuthenticated = sensorScore < sensorThreshold
-
-                                    Logger.d(
-                                            "Using SENSOR-ONLY threshold ($sensorThreshold) " +
-                                                    "for sensor vector. Score: $sensorScore"
-                                    )
-
-                                    finalAuthResult =
-                                            AuthVectorResult(
-                                                    isAuthenticated = isAuthenticated,
-                                                    score = sensorScore,
-                                                    threshold = sensorThreshold,
-                                                    authPercentage = sensorResult.authPercentage,
-                                                    totalAuthentications =
-                                                            sensorResult.totalAuthentications
-                                            )
-                                }
+                                )
                             } else {
-                                // --- Sensor-Only Mode (no fusion model available) ---
-                                finalAuthResult = sensorResult
+                                // --- SENSOR PIPELINE ---
+                                if (!isValidFeatureVector(sensorVector, AuthConfigManager.config.sensorFeatureDimension)) {
+                                    Logger.d("Dropped invalid sensor vector")
+                                    return@collect
+                                }
+
+                                val sensorSnapshot = reshapeSnapshotChunks(
+                                    listOf(sensorVector),
+                                    AuthConfigManager.config.sensorFeatureDimension,
+                                    AuthConfigManager.config.sensorInputDim
+                                )
+
+                                var transformedSensor = withContext(Dispatchers.Default) {
+                                    featureModel.applyTransform(sensorScaler, sensorSnapshot)
+                                }
+
+                                transformedSensor = mergeFeatureSetsFlattened(
+                                    transformedSensor,
+                                    AuthConfigManager.config.windowSize,
+                                    AuthConfigManager.config.sensorInputDim
+                                )
+
+                                val sensorResultMap = sensorAuthManager.authenticateFeatureVector(
+                                    transformedSensor.first(),
+                                    sensorVector
+                                )
+
+                                sensorTotal++
+                                if (sensorResultMap["isAuthenticated"] as Boolean) sensorPass++
+
+                                Logger.d("Using SENSOR result")
+
+                                AuthVectorResult(
+                                    authType = "sensor",
+                                    isAuthenticated = sensorResultMap["isAuthenticated"] as Boolean,
+                                    authenticationScore = sensorResultMap["score"] as Float,
+                                    weightedConfidence = calculateWeightedConfidence(
+                                        sensorPass, sensorTotal, fusionPass, fusionTotal
+                                    )
+                                )
                             }
 
-                            val durationMs = (System.nanoTime() - startTime) / 1_000_000.0
-
-                            // Check for re-enrollment availability
                             checkReEnrollmentStatus()
 
+                            val durationMs = (System.nanoTime() - startTime) / 1_000_000.0
                             Logger.d(
-                                    "Auth execution time: ${"%.3f".format(durationMs)}ms. Authenticated: ${finalAuthResult.isAuthenticated}"
+                                "Auth time: ${"%.3f".format(durationMs)}ms | " +
+                                        "Auth type: ${authResult.authType} | " +
+                                        "Confidence: ${"%.4f".format(authResult.weightedConfidence)}"
                             )
 
-                            withContext(Dispatchers.Main) { onResult(finalAuthResult) }
+                            withContext(Dispatchers.Main) {
+                                onResult(authResult)
+                            }
+
                         } catch (e: Exception) {
-                            Logger.e("Error isolating feature vector auth: ${e.message}")
+                            Logger.e("Error in auth pipeline: ${e.message}")
                         }
                     }
                 } catch (e: CancellationException) {
@@ -835,6 +841,22 @@ class ContinuousAuth(
             Logger.e("Failed to start authentication: ${e.message}", e)
             isAuthenticating.set(false)
         }
+    }
+
+    // --- Helper function to calculate weighted confidence ---
+    private fun calculateWeightedConfidence(
+        sensorPass: Int,
+        sensorTotal: Int,
+        fusionPass: Int,
+        fusionTotal: Int
+    ): Double {
+        val sensorWeight = AuthConfigManager.config.sensorScoreWeight
+        val fusionWeight = AuthConfigManager.config.fusionScoreWeight
+
+        val sensorConfidence = if (sensorTotal > 0) sensorPass.toDouble() / sensorTotal else 0.0
+        val fusionConfidence = if (fusionTotal > 0) fusionPass.toDouble() / fusionTotal else 0.0
+
+        return (sensorWeight * sensorConfidence) + (fusionWeight * fusionConfidence)
     }
 
     // --------------------------------------------------
@@ -866,10 +888,10 @@ class ContinuousAuth(
 
     fun checkReEnrollmentStatus() {
         // Technically both could be ready, base it on Sensor
-        _isReEnrollmentAvailable.value = sensorAuthManager.isReadyForReEnrollment()
+        _isReEnrollmentAvailable.value = reEnrollmentManager.isReadyForReEnrollment()
     }
 
-    val storedVectorCount: StateFlow<Int> = sensorAuthManager.storedVectorCount
+    val storedVectorCount: StateFlow<Int> = reEnrollmentManager.vectorCount
     val maxStoredVectors: Int = AuthConfigManager.config.maxStoredAuthenticatedVectors
 
     fun reEnroll(onResult: (EnrollmentResult) -> Unit) {
@@ -895,12 +917,15 @@ class ContinuousAuth(
                 }
 
                 Logger.d("Re-enrolling SENSOR model with ${sensorVectors.size} stored vectors")
-                val reshapedSensors = reshapeSnapshotChunks(sensorVectors, AuthConfigManager.config.sensorFeatureDimension)
+                val reshapedSensors = reshapeSnapshotChunks(sensorVectors, AuthConfigManager.config.sensorFeatureDimension,
+                    AuthConfigManager.config.sensorInputDim)
                 var transformedSensorList = withContext(Dispatchers.Default) {
                     featureModel.applyFitTransform(sensorScaler, reshapedSensors)
                 }
-                transformedSensorList = mergeFeatureSetsFlattened(transformedSensorList, AuthConfigManager.config.windowSize)
-                val sensorResult = sensorEnrollmentManager.enroll(transformedSensorList)
+                transformedSensorList = mergeFeatureSetsFlattened(transformedSensorList, AuthConfigManager.config.windowSize ,
+                    AuthConfigManager.config.sensorInputDim)
+                val sensorResult = sensorEnrollmentManager.enroll(transformedSensorList,
+                    AuthConfigManager.config.sensorTrainingEpochs)
 
                 if (!sensorResult.success) {
                     Logger.e("Sensor re-enrollment failed: ${sensorResult.message}")
@@ -929,13 +954,16 @@ class ContinuousAuth(
                         Logger.d(
                                 "Re-enrolling FUSION model with ${fusionVectors.size} stored vectors"
                         )
-                        val reshapedFusions = reshapeSnapshotChunks(fusionVectors, AuthConfigManager.config.fusionFeatureDimension)
+                        val reshapedFusions = reshapeSnapshotChunks(fusionVectors, AuthConfigManager.config.fusionFeatureDimension,
+                            AuthConfigManager.config.fusionInputDim)
                         var transformedFusionList = withContext(Dispatchers.Default) {
                             featureModel.applyFitTransform(fusionScaler, reshapedFusions)
                         }
-                        transformedFusionList = mergeFeatureSetsFlattened(transformedFusionList, AuthConfigManager.config.windowSize)
+                        transformedFusionList = mergeFeatureSetsFlattened(transformedFusionList, AuthConfigManager.config.windowSize,
+                            AuthConfigManager.config.fusionInputDim)
 
-                        val fusionResult = fusionEnrollmentManager.enroll(transformedFusionList)
+                        val fusionResult = fusionEnrollmentManager.enroll(transformedFusionList,
+                            AuthConfigManager.config.fusionTrainingEpochs)
 
                         if (fusionResult.success) {
                             fusionAvailable = true

@@ -6,7 +6,6 @@ import shutil
 from pathlib import Path
 from typing import Optional, List
 from models.base import BaseAnomalyDetector
-from config import BATCH_SIZE
 
 class TFLiteConverter:
     """
@@ -31,6 +30,7 @@ class TFLiteConverter:
             self,
             model: BaseAnomalyDetector,
             export_path: Path,
+            input_shape: tuple,
             clean_existing: bool = True
         ) -> Path:
         """
@@ -50,17 +50,6 @@ class TFLiteConverter:
         if clean_existing and export_path.exists():
             shutil.rmtree(export_path)
 
-        # -------------------------------------------------
-        # Dynamically determine model input shape
-        # # -------------------------------------------------
-        # if hasattr(model, "input_shape") and model.input_shape is not None:
-        #     input_shape = list(model.input_shape)
-        #     input_shape[0] = BATCH_SIZE  # Replace batch dimension with 1
-        # else:
-        #     raise ValueError("Model input shape is not defined.")
-
-        # Build model using dummy input
-        input_shape = (BATCH_SIZE, 8 , 200 , 1)
         dummy_input = tf.zeros(input_shape)
 
         model.train_func(dummy_input)
@@ -142,7 +131,9 @@ class TFLiteConverter:
         model: BaseAnomalyDetector,
         export_path: Path,
         output_path: Path,
-        quantization: Optional[str] = None
+        input_shape: tuple,
+        quantization: Optional[str] = None,
+
     ) -> Path:
         """
         Full conversion pipeline: export SavedModel and convert to TFLite.
@@ -157,7 +148,7 @@ class TFLiteConverter:
             Path to the generated .tflite file
         """
         # Export SavedModel
-        saved_model_path = self.export_saved_model(model, export_path)
+        saved_model_path = self.export_saved_model(model, export_path, input_shape)
         
         # Convert to TFLite
         return self.convert_to_tflite(

@@ -278,7 +278,7 @@ fun EvaluationScreen(viewModel: EvaluationViewModel) {
                                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
                                 StatRow(
                                         "Last Score",
-                                        viewModel.lastAuthResult?.score?.let { "%.4f".format(it) }
+                                        viewModel.lastAuthResult?.authenticationScore?.let { "%.4f".format(it) }
                                                 ?: "-"
                                 )
                         }

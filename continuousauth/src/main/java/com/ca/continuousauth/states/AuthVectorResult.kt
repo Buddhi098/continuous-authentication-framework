@@ -1,9 +1,8 @@
 package com.ca.continuousauth.states
 
 data class AuthVectorResult(
-    val isAuthenticated: Boolean,
-    val score: Float?,
-    val threshold: Float?,
-    val authPercentage: Float?,
-    val totalAuthentications: Int?
+    val authType: String,             // "sensor" or "fusion"
+    val isAuthenticated: Boolean,          // isAuthenticated
+    val authenticationScore: Float,   // actual score (default 0.0 if null)
+    val weightedConfidence: Double    // calculated weighted confidence
 )

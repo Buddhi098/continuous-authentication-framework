@@ -121,7 +121,7 @@ class EvaluationViewModel(
         }
         authPercentage = (acceptedCount.toDouble() / processedSamples) * 100.0
 
-        result.score?.let { score ->
+        result.authenticationScore?.let { score ->
             totalScoreSum += score
             averageScore = totalScoreSum / processedSamples
             scoreBuffer.add(score)

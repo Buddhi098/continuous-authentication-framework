@@ -41,7 +41,7 @@ object ContinuousAuthManager {
 class MainActivity : ComponentActivity() {
 
     companion object {
-        private const val TARGET_SAMPLES = 200
+        private const val TARGET_SAMPLES = 500
     }
 
     private val touchEventFlow =
@@ -108,10 +108,10 @@ class MainActivity : ComponentActivity() {
                             if (lastAuthResult.isAuthenticated) "Authenticated" else "Rejected"
                         } else "Unknown"
 
-                val currentScore = lastAuthResult?.score?.let { "%.3f".format(it) } ?: "N/A"
+                val currentScore = lastAuthResult?.authenticationScore?.let { "%.3f".format(it) } ?: "N/A"
 
                 val currentAuthPercentage =
-                        lastAuthResult?.authPercentage?.let { "%.2f%%".format(it) } ?: "N/A"
+                        lastAuthResult?.weightedConfidence?.let { "%.2f%%".format(it) } ?: "N/A"
 
                 // Collect TDT lock state
                 val isLocked by tdtLockFeature.isLocked.collectAsState()

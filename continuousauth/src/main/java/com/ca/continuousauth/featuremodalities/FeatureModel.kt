@@ -2,10 +2,9 @@ package com.ca.continuousauth.featuremodalities
 
 import android.content.Context
 import com.ca.continuousauth.config.AuthConfigManager
-import com.ca.continuousauth.featuremodalities.dataprocessing.denoisers.denoisercollection.GravityHighPassDenoiser
-import com.ca.continuousauth.featuremodalities.dataprocessing.denoisers.denoisercollection.GravityRemovalDenoiser
 import com.ca.continuousauth.featuremodalities.dataprocessing.denoisers.denoisercollection.KalmanDenoiser
 import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.featureextractorcollection.RawSequenceFeatureExtractor
+import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.featureextractorcollection.SensorFeatureExtractor
 import com.ca.continuousauth.featuremodalities.dataprocessing.scalers.Scaler
 import com.ca.continuousauth.featuremodalities.featurefusion.FusedFeatureBuilder
 import com.ca.continuousauth.featuremodalities.featurepipeline.SensorPipelineConfig
@@ -26,6 +25,7 @@ data class DualFeatureVector(
 )
 
 class FeatureModel {
+
     fun getDualFeatureFlowAtFrequency(
         context: Context,
         touchEventFlow: Flow<TouchEventData>? = null,
@@ -36,9 +36,6 @@ class FeatureModel {
         val windowSize = AuthConfigManager.config.windowSize.toDouble()
         val overlap = AuthConfigManager.config.windowOverlapRatio
 
-        /* ----------------------------------------------------------
-           Calculate Theoretical Authentication Frequency
-        ---------------------------------------------------------- */
         val stepSize = windowSize * (1.0 - overlap)
         val authenticationFrequencyHz = sampleRateHz / stepSize
         Logger.d("Authentication frequency = $authenticationFrequencyHz Hz")
@@ -47,98 +44,125 @@ class FeatureModel {
            Raw Data Collectors
         ---------------------------------------------------------- */
         val gyroCollector = GyroscopeDataCollector(context, sampleRateHz, dispatcher)
-        val totalAccelCollector = TotalAccelerometerDataCollector(context, sampleRateHz, dispatcher)
-        // Magnetometer collector disabled as per user request
-        // val magnoCollector = MagnetometerDataCollector(context, sampleRateHz, dispatcher)
+        val accelCollector = AccelerometerDataCollector(context, sampleRateHz, dispatcher)
         val touchCollector = TouchDataCollector(touchEventFlow = touchEventFlow)
 
         /* ----------------------------------------------------------
-           Sensor Pipeline configurations
+           DYNAMIC PIPELINE (2D → will be flattened)
         ---------------------------------------------------------- */
-        val sensorConfigs = listOf(
+        val dynamicConfigs = listOf(
             SensorPipelineConfig(
                 sensorKey = "gyro",
                 selector = { it.gyro },
-                denoisers = listOf(
-                    KalmanDenoiser()
-                ),
-                featureExtractors = listOf(RawSequenceFeatureExtractor()) /* output: 2D vector (x , y , x , magnitude) */
+                denoisers = listOf(KalmanDenoiser()),
+                featureExtractors = listOf(RawSequenceFeatureExtractor())
             ),
-
             SensorPipelineConfig(
-                sensorKey = "totalAccel",
+                sensorKey = "acc",
                 selector = { it.accel },
-                denoisers = listOf(
-                    KalmanDenoiser() ,
-//                    GravityRemovalDenoiser()
-//                    GravityHighPassDenoiser()
-                ),
-                featureExtractors = listOf(RawSequenceFeatureExtractor()) /* output: 2D vector (x , y , x , magnitude) */
+                denoisers = listOf(KalmanDenoiser()),
+                featureExtractors = listOf(RawSequenceFeatureExtractor())
             )
         )
 
         /* ----------------------------------------------------------
-           Timestamp-Based Sensor Synchronization
+           STATIC PIPELINE (1D → ONLY for fusion)
+        ---------------------------------------------------------- */
+        val staticConfigs = listOf(
+            SensorPipelineConfig(
+                sensorKey = "gyro",
+                selector = { it.gyro },
+                denoisers = listOf(KalmanDenoiser()),
+                featureExtractors = listOf(SensorFeatureExtractor())
+            ),
+            SensorPipelineConfig(
+                sensorKey = "acc",
+                selector = { it.accel },
+                denoisers = listOf(KalmanDenoiser()),
+                featureExtractors = listOf(SensorFeatureExtractor())
+            )
+        )
+
+        /* ----------------------------------------------------------
+           Synchronization (shared)
         ---------------------------------------------------------- */
         val synchronizer = SensorTimeSynchronizer(sampleRateHz)
         val synchronizedFlow = synchronizer.synchronize(
-            gyroFlow  = gyroCollector.start(),
-            accelFlow = totalAccelCollector.start()
+            gyroFlow = gyroCollector.start(),
+            accelFlow = accelCollector.start()
         )
 
         /* ----------------------------------------------------------
-           Synchronized Sensor Feature Pipeline
+           Two Sensor Feature Flows
         ---------------------------------------------------------- */
-        val sensorFeatureFlow: Flow<Any> = collectSynchronizedSensorFeatures(
+        val dynamicSensorFlow: Flow<Any> = collectSynchronizedSensorFeatures(
             synchronizedFlow = synchronizedFlow,
-            sensorConfigs = sensorConfigs
+            sensorConfigs = dynamicConfigs
         )
-        /* ----------------------------------------------------------
-           Touch Pipeline (unchanged)
-        ---------------------------------------------------------- */
-        val touchFlow: Flow<Pair<Long, Any>> = collectTouchDynamicFeature({ touchCollector.start() }, dispatcher)
 
-        var latchedTouchFeatures: Any? = null
+        val staticSensorFlow: Flow<Any> = collectSynchronizedSensorFeatures(
+            synchronizedFlow = synchronizedFlow,
+            sensorConfigs = staticConfigs
+        )
+
+        /* ----------------------------------------------------------
+           Touch Flow
+        ---------------------------------------------------------- */
+        val touchFlow: Flow<Pair<Long, Any>> =
+            collectTouchDynamicFeature({ touchCollector.start() }, dispatcher)
+
+        /* ----------------------------------------------------------
+           Fusion Logic (STATIC + TOUCH ONLY)
+        ---------------------------------------------------------- */
+        var latchedTouchFeatures: List<Float>? = null
         var latchedTouchTime: Long = -1L
         var latchConsumed = true
 
-        val dualFlow: Flow<DualFeatureVector> = combine(
-            sensorFeatureFlow,
+        val dualFlow = combine(
+            dynamicSensorFlow,
+            staticSensorFlow,
             touchFlow
-        ) { sensorOutput, touchPair ->
+        ) { dynamicOutput, staticOutput, touchPair ->
 
             val (touchTime, touchFeatures) = touchPair
-            val sensorVector = flattenFeatureOutput(sensorOutput)
-            val touchVector = flattenFeatureOutput(touchFeatures)
-            val isTouchNonZero = touchVector?.any { it != 0f } ?: false
 
+            // ✅ Dynamic → flatten BEFORE emitting
+            val dynamicVector = flattenFeatureOutput(dynamicOutput) ?: emptyList()
+
+            // ✅ Static → only used internally
+            val staticVector = flattenFeatureOutput(staticOutput) ?: emptyList()
+
+            val touchVector = flattenFeatureOutput(touchFeatures) ?: emptyList()
+
+            val isTouchNonZero = touchVector.any { it != 0f }
+
+            /* ----------- LATCH TOUCH ----------- */
             if (isTouchNonZero && touchTime != latchedTouchTime) {
                 latchedTouchFeatures = touchVector
                 latchedTouchTime = touchTime
                 latchConsumed = false
-                Logger.d("FusionPipeline: Latched touch vector (time=$touchTime dim=${touchVector?.size})")
             }
 
-            val fusionVector: List<Float>?
-            val emittedTouchTime: Long
+            var fusionVector: List<Float>? = null
+            var emittedTouchTime = touchTime
 
+            /* ----------- FUSION ----------- */
             if (!latchConsumed && latchedTouchFeatures != null) {
+
                 val fusedMap = mapOf(
-                    "sensor" to (sensorVector ?: emptyList<Float>()),
+                    "sensor" to staticVector,  // ONLY static used
                     "touch" to latchedTouchFeatures!!
                 )
+
                 val fusionOutput = FusedFeatureBuilder.buildFusedFeatures(fusedMap)
                 fusionVector = flattenFeatureOutput(fusionOutput)
+
                 emittedTouchTime = latchedTouchTime
                 latchConsumed = true
-                Logger.d("FusionPipeline: Fusion vector built (dim=${fusionVector?.size})")
-            } else {
-                fusionVector = null
-                emittedTouchTime = touchTime
             }
 
             DualFeatureVector(
-                sensorVector = sensorVector ?: emptyList<Float>(),
+                sensorVector = dynamicVector, // flattened dynamic
                 fusionVector = fusionVector,
                 touchTime = emittedTouchTime
             )
@@ -148,6 +172,9 @@ class FeatureModel {
         return dualFlow
     }
 
+    /* ----------------------------------------------------------
+       Flatten Utility
+    ---------------------------------------------------------- */
     private fun flattenFeatureOutput(data: Any?): List<Float>? {
         return when (data) {
             is List<*> -> {
@@ -157,16 +184,9 @@ class FeatureModel {
                     is Float -> data.filterIsInstance<Float>()
                     is List<*> -> {
                         val matrix = data.filterIsInstance<List<Float>>()
-                        val rows = matrix.size
-                        val cols = matrix.firstOrNull()?.size ?: 0
-                        if (rows == 0 || cols == 0) return emptyList()
-
-                        val result = ArrayList<Float>(rows * cols)
-                        // Row-wise flattening
-                        for (row in 0 until rows) {
-                            for (col in 0 until cols) {
-                                result.add(matrix[row][col])
-                            }
+                        val result = ArrayList<Float>()
+                        for (row in matrix) {
+                            result.addAll(row)
                         }
                         result
                     }

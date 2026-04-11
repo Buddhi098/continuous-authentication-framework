@@ -199,13 +199,13 @@ fun AuthenticationScreen(viewModel: AuthenticationViewModel) {
                         ) {
                                 MetricCard(
                                         label = "Score",
-                                        value = String.format("%.3f", lastAuthResult!!.score),
+                                        value = String.format("%.3f", lastAuthResult!!.authenticationScore),
                                         modifier = Modifier.weight(1f)
                                 )
                                 MetricCard(
                                         label = "Confidence",
                                         value =
-                                                lastAuthResult!!.authPercentage?.let {
+                                                lastAuthResult!!.weightedConfidence?.let {
                                                         "%.1f%%".format(it)
                                                 }
                                                         ?: "N/A",

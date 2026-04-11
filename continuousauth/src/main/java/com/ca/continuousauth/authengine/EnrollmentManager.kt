@@ -16,7 +16,6 @@ class EnrollmentManager(
         private val thresholdFile: File,
         private val metadataFile: File,
 ) {
-    private val trainValidationRatio = AuthConfigManager.config.trainValidationRatio
 
     // --------------------------------------------------
     // Enrollment (Train + Threshold + Persist)
@@ -28,66 +27,61 @@ class EnrollmentManager(
      * @param thresholdFactor Factor to multiply standard deviation for threshold
      */
     fun enroll(
-            dataSet: List<List<Float>>,
+        dataSet: List<List<Float>>,
+        ephocs: Int,
     ): EnrollmentResult {
         try {
             if (dataSet.size < 10) {
                 return EnrollmentResult(
-                        success = false,
-                        message = "Not enough samples for enrollment"
+                    success = false,
+                    message = "Not enough samples for enrollment"
                 )
             }
 
-            // Shuffle to avoid ordering bias
-            val shuffled = dataSet.shuffled()
-            Logger.d("Original Enrollment Sample Count ${shuffled.size}")
+            Logger.d("Enrollment started with ${dataSet.size} samples")
 
-            val splitIndex = (shuffled.size * trainValidationRatio).toInt()
-            val trainingSet = shuffled.subList(0, splitIndex)
-            val validationSet = shuffled.subList(splitIndex, shuffled.size)
+            // 1️⃣ Train model using the full dataset
+            authModel.runTrainingSession(dataSet, ephocs)
 
-            Logger.d(
-                    "Enrollment started. Train=${trainingSet.size}, Validation=${validationSet.size}"
+            // 2️⃣ Calculate threshold using the full dataset
+            val threshold = calculateThreshold(dataSet) ?: return EnrollmentResult(
+                success = false,
+                message = "Threshold calculation failed"
             )
-
-            // 1️⃣ Train model
-            authModel.runTrainingSession(trainingSet)
-
-            // 2️⃣ Calculate threshold
-            val threshold =
-                    calculateThreshold(validationSet)
-                            ?: return EnrollmentResult(
-                                    success = false,
-                                    message = "Threshold calculation failed"
-                            )
 
             // 3️⃣ Persist model weights
             if (!authModel.saveCheckpoint(checkpointFile)) {
                 return EnrollmentResult(
-                        success = false,
-                        message = "Failed to save model checkpoint"
+                    success = false,
+                    message = "Failed to save model checkpoint"
                 )
             }
 
             // 4️⃣ Persist threshold
             if (!saveThreshold(threshold)) {
-                return EnrollmentResult(success = false, message = "Failed to save threshold")
+                return EnrollmentResult(
+                    success = false,
+                    message = "Failed to save threshold"
+                )
             }
 
             // 5️⃣ Persist metadata (sample count)
-            val sampleCount = trainingSet.size
+            val sampleCount = dataSet.size
             saveMetadata(sampleCount)
 
             Logger.d("Enrollment successful. Threshold=$threshold, Samples=$sampleCount")
 
             return EnrollmentResult(
-                    success = true,
-                    threshold = threshold,
-                    trainedSampleCount = sampleCount
+                success = true,
+                threshold = threshold,
+                trainedSampleCount = sampleCount
             )
         } catch (e: Exception) {
             Logger.e("Enrollment failed: ${e.message}", e)
-            return EnrollmentResult(success = false, message = "Enrollment exception: ${e.message}")
+            return EnrollmentResult(
+                success = false,
+                message = "Enrollment exception: ${e.message}"
+            )
         }
     }
 
@@ -98,7 +92,7 @@ class EnrollmentManager(
     // Optimization: Use FloatArray instead of List<Float> to save boxing overhead
     fun calculateThreshold(
             validationSet: List<List<Float>>,
-            percentile: Float = 90f,
+            percentile: Float = 80f,
             strictness: Float = 1.5f // Standard IQR multiplier (1.5 is standard, 3.0 is loose)
     ): Float? {
         // 1. Gather scores (reuse ArrayList to avoid resizing overhead)
