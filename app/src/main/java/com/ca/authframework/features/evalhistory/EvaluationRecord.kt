@@ -20,5 +20,6 @@ data class EvaluationRecord(
         val finalConfidence: Double,
         val samplesProcessed: Int,
         val averageScore: Double = 0.0,
-        val medianScore: Double = 0.0
+        val medianScore: Double = 0.0,
+        val overallWindowAccuracy: Double = 0.0
 )

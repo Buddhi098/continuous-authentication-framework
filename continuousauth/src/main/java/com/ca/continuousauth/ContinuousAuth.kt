@@ -695,7 +695,7 @@ class ContinuousAuth(
             sensorScaler.load()
 
             val useFusion = _isFusionModelReady.value && fusionCheckpointFile.exists()
-            Logger.d(" Huuuuuuuuu ${useFusion}")
+
             if (useFusion) {
                 fusionAuthManager.loadModel()
                 fusionAuthManager.loadThresholdOnce()
@@ -703,19 +703,35 @@ class ContinuousAuth(
             }
 
             Logger.d(
-                "Authentication starting. Mode: ${if (useFusion) "Fusion-first (fallback: Sensor)" else "Sensor-only"}"
+                "Authentication starting. Mode: ${
+                    if (useFusion) "Fusion-first (fallback: Sensor)" else "Sensor-only"
+                }"
             )
 
             val featureFlow = featureModel.getDualFeatureFlowAtFrequency(context, touchEventFlow)
 
             authScope.launch {
+
                 var lastAuthenticatedTouchTime = -1L
 
-                // --- Counters for Weighted Confidence ---
-                var sensorPass = 0
-                var sensorTotal = 0
-                var fusionPass = 0
-                var fusionTotal = 0
+                // ================= GLOBAL (NEVER RESET) =================
+                var globalSensorPass = 0
+                var globalSensorTotal = 0
+                var globalFusionPass = 0
+                var globalFusionTotal = 0
+
+                // ================= WINDOW (RESET EACH WINDOW) =================
+                var windowSensorPass = 0
+                var windowSensorTotal = 0
+                var windowFusionPass = 0
+                var windowFusionTotal = 0
+
+                var windowEventCount = 0
+                var windowPassCount = 0
+                var totalWindows = 0
+
+                var windowPassed = false
+                var overallWindowAccuracy: Double = 0.0
 
                 try {
                     featureFlow.collect { vector ->
@@ -728,13 +744,16 @@ class ContinuousAuth(
                             val fusionVector = extractFeatureList(vector.fusionVector)
                             val touchTime = vector.touchTime
 
-                            // --- Decide which vector to use ---
-                            val authResult: AuthVectorResult = if (useFusion &&
+                            val authResult: AuthVectorResult = if (
+                                useFusion &&
                                 fusionVector != null &&
                                 touchTime != lastAuthenticatedTouchTime &&
-                                isValidFeatureVector(fusionVector, AuthConfigManager.config.fusionFeatureDimension)
+                                isValidFeatureVector(
+                                    fusionVector,
+                                    AuthConfigManager.config.fusionFeatureDimension
+                                )
                             ) {
-                                // --- FUSION PIPELINE ---
+                                // ================= FUSION =================
                                 lastAuthenticatedTouchTime = touchTime
 
                                 val fusionSnapshot = reshapeSnapshotChunks(
@@ -753,27 +772,38 @@ class ContinuousAuth(
                                     AuthConfigManager.config.fusionInputDim
                                 )
 
-                                val fusionResultMap = fusionAuthManager.authenticateFeatureVector(
+                                val result = fusionAuthManager.authenticateFeatureVector(
                                     transformedFusion.first(),
                                     fusionVector
                                 )
 
-                                fusionTotal++
-                                if (fusionResultMap["isAuthenticated"] as Boolean) fusionPass++
+                                val isAuth = result["isAuthenticated"] as Boolean
 
-                                Logger.d("Using FUSION result")
+                                // GLOBAL
+                                globalFusionTotal++
+                                if (isAuth) globalFusionPass++
+
+                                // WINDOW
+                                windowFusionTotal++
+                                if (isAuth) windowFusionPass++
 
                                 AuthVectorResult(
                                     authType = "fusion",
-                                    isAuthenticated = fusionResultMap["isAuthenticated"] as Boolean,
-                                    authenticationScore = fusionResultMap["score"] as Float,
+                                    isAuthenticated = isAuth,
+                                    authenticationScore = result["score"] as Float,
                                     weightedConfidence = calculateWeightedConfidence(
-                                        sensorPass, sensorTotal, fusionPass, fusionTotal
+                                        globalSensorPass, globalSensorTotal,
+                                        globalFusionPass, globalFusionTotal
                                     )
                                 )
+
                             } else {
-                                // --- SENSOR PIPELINE ---
-                                if (!isValidFeatureVector(sensorVector, AuthConfigManager.config.sensorFeatureDimension)) {
+                                // ================= SENSOR =================
+                                if (!isValidFeatureVector(
+                                        sensorVector,
+                                        AuthConfigManager.config.sensorFeatureDimension
+                                    )
+                                ) {
                                     Logger.d("Dropped invalid sensor vector")
                                     return@collect
                                 }
@@ -794,43 +824,102 @@ class ContinuousAuth(
                                     AuthConfigManager.config.sensorInputDim
                                 )
 
-                                val sensorResultMap = sensorAuthManager.authenticateFeatureVector(
+                                val result = sensorAuthManager.authenticateFeatureVector(
                                     transformedSensor.first(),
                                     sensorVector
                                 )
 
-                                sensorTotal++
-                                if (sensorResultMap["isAuthenticated"] as Boolean) sensorPass++
+                                val isAuth = result["isAuthenticated"] as Boolean
 
-                                Logger.d("Using SENSOR result")
+                                // GLOBAL
+                                globalSensorTotal++
+                                if (isAuth) globalSensorPass++
+
+                                // WINDOW
+                                windowSensorTotal++
+                                if (isAuth) windowSensorPass++
 
                                 AuthVectorResult(
                                     authType = "sensor",
-                                    isAuthenticated = sensorResultMap["isAuthenticated"] as Boolean,
-                                    authenticationScore = sensorResultMap["score"] as Float,
+                                    isAuthenticated = isAuth,
+                                    authenticationScore = result["score"] as Float,
                                     weightedConfidence = calculateWeightedConfidence(
-                                        sensorPass, sensorTotal, fusionPass, fusionTotal
+                                        globalSensorPass, globalSensorTotal,
+                                        globalFusionPass, globalFusionTotal
                                     )
                                 )
                             }
+                            // ================= WINDOW LOGIC =================
+                            windowEventCount++
+
+                            if (windowEventCount >= AuthConfigManager.config.windowSizeForDecision) {
+
+                                val windowConfidence = calculateWeightedConfidence(
+                                    windowSensorPass, windowSensorTotal,
+                                    windowFusionPass, windowFusionTotal
+                                )
+
+                                windowPassed =
+                                    windowConfidence >= AuthConfigManager.config.windowConfidenceThreshold
+
+                                totalWindows++
+                                if (windowPassed) windowPassCount++
+
+                                overallWindowAccuracy =
+                                    if (totalWindows > 0)
+                                        windowPassCount.toDouble() / totalWindows
+                                    else 0.0
+
+                                Logger.d(
+                                    "🪟 Window Result → " +
+                                            "Confidence: ${"%.4f".format(windowConfidence)} | " +
+                                            "Passed: $windowPassed | " +
+                                            "Overall: ${"%.4f".format(overallWindowAccuracy)}"
+                                )
+                                windowEventCount = 0
+                                windowSensorPass = 0
+                                windowSensorTotal = 0
+                                windowFusionPass = 0
+                                windowFusionTotal = 0
+                            }
+
+                            withContext(Dispatchers.Main) {
+                                onResult(
+                                    authResult.copy(
+                                        windowPassed = windowPassed,
+                                        overallWindowAccuracy = overallWindowAccuracy
+                                    )
+                                )
+                            }
+
+//                                // -------- RESET ONLY WINDOW --------
+//                                windowEventCount = 0
+//                                windowSensorPass = 0
+//                                windowSensorTotal = 0
+//                                windowFusionPass = 0
+//                                windowFusionTotal = 0
+//
+//                            } else {
+//                                // Emit event-level result
+//                                withContext(Dispatchers.Main) {
+//                                    onResult(authResult)
+//                                }
+//                            }
 
                             checkReEnrollmentStatus()
 
                             val durationMs = (System.nanoTime() - startTime) / 1_000_000.0
                             Logger.d(
                                 "Auth time: ${"%.3f".format(durationMs)}ms | " +
-                                        "Auth type: ${authResult.authType} | " +
-                                        "Confidence: ${"%.4f".format(authResult.weightedConfidence)}"
+                                        "Type: ${authResult.authType} | " +
+                                        "Global Confidence: ${"%.4f".format(authResult.weightedConfidence)}"
                             )
-
-                            withContext(Dispatchers.Main) {
-                                onResult(authResult)
-                            }
 
                         } catch (e: Exception) {
                             Logger.e("Error in auth pipeline: ${e.message}")
                         }
                     }
+
                 } catch (e: CancellationException) {
                     Logger.d("Authentication flow cancelled")
                 } catch (e: Exception) {
@@ -839,6 +928,7 @@ class ContinuousAuth(
                     isAuthenticating.set(false)
                 }
             }
+
         } catch (e: Exception) {
             Logger.e("Failed to start authentication: ${e.message}", e)
             isAuthenticating.set(false)

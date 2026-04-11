@@ -95,7 +95,7 @@ class EnrollmentManager(
     // Optimization: Use FloatArray instead of List<Float> to save boxing overhead
     fun calculateThreshold(
             validationSet: List<List<Float>>,
-            percentile: Float = 82f,
+            percentile: Float = 90f,
             strictness: Float = 1.5f // Standard IQR multiplier (1.5 is standard, 3.0 is loose)
     ): Float? {
         // 1. Gather scores (reuse ArrayList to avoid resizing overhead)

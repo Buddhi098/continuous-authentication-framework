@@ -25,6 +25,7 @@ class EvaluationRepository(context: Context) {
         private const val KEY_SAMPLES_PROCESSED = "samplesProcessed"
         private const val KEY_AVERAGE_SCORE = "averageScore"
         private const val KEY_MEDIAN_SCORE = "medianScore"
+        private const val KEY_OVERALL_WINDOW_ACCURACY = "overallWindowAccuracy"
     }
 
     /** Save a new evaluation record to storage. */
@@ -85,6 +86,7 @@ class EvaluationRepository(context: Context) {
             put(KEY_SAMPLES_PROCESSED, record.samplesProcessed)
             put(KEY_AVERAGE_SCORE, record.averageScore)
             put(KEY_MEDIAN_SCORE, record.medianScore)
+            put(KEY_OVERALL_WINDOW_ACCURACY, record.overallWindowAccuracy)
         }
     }
 
@@ -97,7 +99,8 @@ class EvaluationRepository(context: Context) {
                 finalConfidence = obj.optDouble(KEY_FINAL_CONFIDENCE, obj.optDouble("avgConfidence", 0.0)),
                 samplesProcessed = obj.getInt(KEY_SAMPLES_PROCESSED),
                 averageScore = obj.optDouble(KEY_AVERAGE_SCORE, 0.0),
-                medianScore = obj.optDouble(KEY_MEDIAN_SCORE, 0.0)
+                medianScore = obj.optDouble(KEY_MEDIAN_SCORE, 0.0),
+                overallWindowAccuracy = obj.optDouble(KEY_OVERALL_WINDOW_ACCURACY, 0.0)
         )
     }
 }

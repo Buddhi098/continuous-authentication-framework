@@ -44,6 +44,12 @@ private constructor(
     val outputReconstructionError: String,
 
     /* ------------------------------------------------------------------
+     * 2. Window-Based Decision (NEW)
+     * ------------------------------------------------------------------ */
+    val windowSizeForDecision: Int,
+    val windowConfidenceThreshold: Double,
+
+    /* ------------------------------------------------------------------
      * 3. System Settings
      * ------------------------------------------------------------------ */
     val enableLogging: Boolean,
@@ -52,29 +58,33 @@ private constructor(
 ) {
 
     init {
-        require(sampleCollectionFrequencyHz > 0) { "sampleCollectionFrequencyHz must be > 0" }
-        require(enrollmentSamples > 0) { "enrollmentSamples must be > 0" }
-        require(windowSize > 0) { "windowSize must be > 0" }
-        require(windowOverlapRatio in 0.0..0.9) { "windowOverlapRatio must be between 0.0 and 0.9" }
-        require(sensorTrainingEpochs > 0) { "sensorTrainingEpochs must be > 0" }
-        require(fusionTrainingEpochs > 0) { "fusionTrainingEpochs must be > 0" }
-        require(trainingBatchSize > 0) { "trainingBatchSize must be > 0" }
-        require(sensorFeatureDimension > 0) { "sensorFeatureDimension must be > 0" }
-        require(fusionFeatureDimension > 0) { "fusionFeatureDimension must be > 0" }
-        require(sensorScoreWeight + fusionScoreWeight == 1.0f) { "Weights must sum to 1.0" }
-        require(sensorScoreWeight in 0.0f..1.0f) { "sensorScoreWeight must be between 0.0 and 1.0" }
-        require(fusionScoreWeight in 0.0f..1.0f) { "fusionScoreWeight must be between 0.0 and 1.0" }
-        require(maxStoredAuthenticatedVectors > 0) { "maxStoredAuthenticatedVectors must be > 0" }
-        require(emaAlpha in 0.0f..1.0f) { "emaAlpha must be between 0.0 and 1.0" }
+        require(sampleCollectionFrequencyHz > 0)
+        require(enrollmentSamples > 0)
+        require(windowSize > 0)
+        require(windowOverlapRatio in 0.0..0.9)
+        require(sensorTrainingEpochs > 0)
+        require(fusionTrainingEpochs > 0)
+        require(trainingBatchSize > 0)
+        require(sensorFeatureDimension > 0)
+        require(fusionFeatureDimension > 0)
+        require(sensorScoreWeight + fusionScoreWeight == 1.0f)
+        require(sensorScoreWeight in 0.0f..1.0f)
+        require(fusionScoreWeight in 0.0f..1.0f)
+        require(maxStoredAuthenticatedVectors > 0)
+        require(emaAlpha in 0.0f..1.0f)
 
-        require(minSensorSamples > 0) { "minSensorSamples must be > 0" }
-        require(minFusionSamples > 0) { "minFusionSamples must be > 0" }
+        require(minSensorSamples > 0)
+        require(minFusionSamples > 0)
 
-        require(sensorInputDim == "1D" || sensorInputDim == "2D") {
-            "sensorInputDim must be either '1D' or '2D'"
+        require(sensorInputDim == "1D" || sensorInputDim == "2D")
+        require(fusionInputDim == "1D" || fusionInputDim == "2D")
+
+        // ✅ NEW VALIDATIONS
+        require(windowSizeForDecision > 0) {
+            "windowSizeForDecision must be > 0"
         }
-        require(fusionInputDim == "1D" || fusionInputDim == "2D") {
-            "fusionInputDim must be either '1D' or '2D'"
+        require(windowConfidenceThreshold in 0.0..1.0) {
+            "windowConfidenceThreshold must be between 0.0 and 1.0"
         }
     }
 
@@ -119,6 +129,10 @@ private constructor(
         private var outputStatus: String = "status"
         private var outputReconstructionError: String = "anomaly_score"
 
+        /* ------------------ Window Decision (NEW) ---------------- */
+        private var windowSizeForDecision: Int = 8
+        private var windowConfidenceThreshold: Double = 0.5
+
         /* --------------------- System ---------------------------- */
         private var enableLogging: Boolean = true
 
@@ -159,6 +173,10 @@ private constructor(
         fun outputStatus(value: String) = apply { outputStatus = value }
         fun outputReconstructionError(value: String) = apply { outputReconstructionError = value }
 
+        // ✅ NEW SETTERS
+        fun windowSizeForDecision(value: Int) = apply { windowSizeForDecision = value }
+        fun windowConfidenceThreshold(value: Double) = apply { windowConfidenceThreshold = value }
+
         fun enableLogging(value: Boolean) = apply { enableLogging = value }
         fun maxStoredAuthenticatedVectors(value: Int) = apply { maxStoredAuthenticatedVectors = value }
         fun emaAlpha(value: Float) = apply { emaAlpha = value }
@@ -193,6 +211,8 @@ private constructor(
                 outputLoss,
                 outputStatus,
                 outputReconstructionError,
+                windowSizeForDecision,
+                windowConfidenceThreshold,
                 enableLogging,
                 maxStoredAuthenticatedVectors,
                 emaAlpha
