@@ -14,6 +14,8 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.*
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.*
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -28,16 +30,15 @@ import com.ca.authframework.core.ui.theme.SuccessDark
 @Composable
 fun EnrollmentScreen(viewModel: EnrollmentViewModel, targetSamples: Int = 100) {
         val isCollecting by viewModel.isCollecting.collectAsState()
-        val progress by viewModel.progress.collectAsState()
-        val collectedCount by viewModel.collectedSampleCount.collectAsState()
         val isPaused by viewModel.isPaused.collectAsState()
         val statusMessage by viewModel.statusMessage.collectAsState()
         // 🔐 Model State: Any threshold > 0 means a model is trained
         val threshold by viewModel.threshold.collectAsState()
         val trainedSampleCount by viewModel.trainedSampleCount.collectAsState()
-        val currentFrequency by viewModel.currentFrequency.collectAsState()
 
-        val isCompleted = progress >= 1f
+        val isCompleted by remember(viewModel) {
+            viewModel.progress.map { it >= 1f }.distinctUntilChanged()
+        }.collectAsState(initial = viewModel.progress.value >= 1f)
         var showClearDialog by remember { mutableStateOf(false) }
         var showInstructions by remember { mutableStateOf(true) }
 
@@ -451,70 +452,11 @@ fun EnrollmentScreen(viewModel: EnrollmentViewModel, targetSamples: Int = 100) {
 
                                 // Circular Progress
                                 if (threshold <= 0f) {
-                                        Box(
-                                                contentAlignment = Alignment.Center,
-                                                modifier = Modifier.size(160.dp)
-                                        ) {
-                                                // Track
-                                                CircularProgressIndicator(
-                                                        progress = 1f,
-                                                        modifier = Modifier.fillMaxSize(),
-                                                        color =
-                                                                MaterialTheme.colorScheme
-                                                                        .surfaceVariant,
-                                                        strokeWidth = 12.dp,
-                                                        strokeCap = StrokeCap.Round
-                                                )
-                                                // Progress
-                                                CircularProgressIndicator(
-                                                        progress = progress.coerceIn(0f, 1f),
-                                                        modifier = Modifier.fillMaxSize(),
-                                                        color =
-                                                                if (isCompleted) SuccessDark
-                                                                else
-                                                                        MaterialTheme.colorScheme
-                                                                                .primary,
-                                                        strokeWidth = 12.dp,
-                                                        strokeCap = StrokeCap.Round
-                                                )
-
-                                                // Text Center
-                                                Column(
-                                                        horizontalAlignment =
-                                                                Alignment.CenterHorizontally
-                                                ) {
-                                                        Text(
-                                                                text =
-                                                                        "${(progress * 100).toInt()}%",
-                                                                style =
-                                                                        MaterialTheme.typography
-                                                                                .headlineLarge,
-                                                                fontWeight = FontWeight.Bold,
-                                                                color =
-                                                                        MaterialTheme.colorScheme
-                                                                                .onSurface
-                                                        )
-                                                        Text(
-                                                                text =
-                                                                        "${collectedCount} / ${targetSamples}",
-                                                                style =
-                                                                        MaterialTheme.typography
-                                                                                .labelMedium,
-                                                                color =
-                                                                        MaterialTheme.colorScheme
-                                                                                .onSurfaceVariant
-                                                        )
-                                                        if (isCollecting) {
-                                                                Text(
-                                                                        text = "${currentFrequency} Hz (Target 100Hz)",
-                                                                        style = MaterialTheme.typography.labelSmall,
-                                                                        color = MaterialTheme.colorScheme.primary,
-                                                                        modifier = Modifier.padding(top = 4.dp),
-                                                                        fontWeight = FontWeight.Medium
-                                                                )
-                                                        }
-                                                }
-                                        }
+                                        EnrollmentProgressBox(
+                                                viewModel = viewModel,
+                                                targetSamples = targetSamples,
+                                                isCompleted = isCompleted
+                                        )
                                 }
 
                                 // Status Message Box
@@ -633,4 +575,64 @@ fun EnrollmentScreen(viewModel: EnrollmentViewModel, targetSamples: Int = 100) {
                         }
                 )
         }
+}
+
+@Composable
+fun EnrollmentProgressBox(
+    viewModel: EnrollmentViewModel,
+    targetSamples: Int,
+    isCompleted: Boolean
+) {
+    val progress by viewModel.progress.collectAsState()
+    val collectedCount by viewModel.collectedSampleCount.collectAsState()
+    val currentFrequency by viewModel.currentFrequency.collectAsState()
+    val isCollecting by viewModel.isCollecting.collectAsState()
+
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier.size(160.dp)
+    ) {
+        // Track
+        CircularProgressIndicator(
+            progress = { 1f },
+            modifier = Modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            strokeWidth = 12.dp,
+            strokeCap = StrokeCap.Round
+        )
+        // Progress
+        CircularProgressIndicator(
+            progress = { progress.coerceIn(0f, 1f) },
+            modifier = Modifier.fillMaxSize(),
+            color = if (isCompleted) SuccessDark else MaterialTheme.colorScheme.primary,
+            strokeWidth = 12.dp,
+            strokeCap = StrokeCap.Round
+        )
+
+        // Text Center
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = "${(progress * 100).toInt()}%",
+                style = MaterialTheme.typography.headlineLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = "${collectedCount} / ${targetSamples}",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            if (isCollecting) {
+                Text(
+                    text = "${currentFrequency} Hz (Target 100Hz)",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(top = 4.dp),
+                    fontWeight = FontWeight.Medium
+                )
+            }
+        }
+    }
 }

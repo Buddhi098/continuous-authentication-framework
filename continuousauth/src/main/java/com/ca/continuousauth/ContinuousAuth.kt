@@ -159,7 +159,7 @@ class ContinuousAuth(
     // -----------------------------
     // Auth model training and authetication states
     // -----------------------------
-    private val _isCheckpointExists = MutableStateFlow(checkpointFile.exists())
+    private val _isCheckpointExists = MutableStateFlow(false)
     val isCheckpointExists: StateFlow<Boolean> = _isCheckpointExists.asStateFlow()
 
     private val _isFusionModelReady = MutableStateFlow(false)
@@ -172,18 +172,19 @@ class ContinuousAuth(
         // 1. Parameter validation (fail fast)
         require(enrollmentSamples > 0) { "Enrollment samples must be greater than 0" }
 
-        // 2. Ensure filesDir exists (defensive, non-blocking)
-        if (!context.filesDir.exists() && !context.filesDir.mkdirs()) {
-            Logger.e("Context filesDir does not exist and could not be created.")
-        }
-
-        // 3. Configure logger (preferably app-level, but kept here)
+        // 2. Configure logger (preferably app-level, but kept here)
         Logger.setEnabled(enableLog)
 
-        // 4. Initialize fusion readiness from disk
-        _isFusionModelReady.value = fusionCheckpointFile.exists() && fusionThresholdFile.exists()
+        // 3. Initialize file structure and models readiness from disk (background)
+        scope.launch(Dispatchers.IO) {
+            if (!context.filesDir.exists() && !context.filesDir.mkdirs()) {
+                Logger.e("Context filesDir does not exist and could not be created.")
+            }
+            _isCheckpointExists.value = checkpointFile.exists()
+            _isFusionModelReady.value = fusionCheckpointFile.exists() && fusionThresholdFile.exists()
+        }
 
-        // 5. Trigger async state restoration
+        // 4. Trigger async state restoration
         restorePreviousState()
     }
 
@@ -267,7 +268,8 @@ class ContinuousAuth(
                             }
 
                             if (AuthConfigManager.config.shouldLogFeatureVector) {
-                                Logger.d("$vector") // log the DualFeatureVector
+                                Logger.d("Sensor Vector: $sensorVector") // log the DualFeatureVector
+                                Logger.d("Fusion Vector: $fusionVector") // log the DualFeatureVector
                             }
 
                             collectionLock.withLock {

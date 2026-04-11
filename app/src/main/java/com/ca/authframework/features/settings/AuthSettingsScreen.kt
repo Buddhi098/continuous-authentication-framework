@@ -1,6 +1,8 @@
 package com.ca.authframework.features.settings
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Analytics
@@ -29,37 +31,33 @@ fun AuthSettingsScreen(
         tdtLockEnabled: Boolean = false,
         onTdtLockToggle: (Boolean) -> Unit = {}
 ) {
-    LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(16.dp),
+    val scrollState = rememberScrollState()
+    
+    Column(
+            modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(scrollState)
+                    .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(24.dp)
     ) {
         // TDT Lock Settings Group
-        item {
-            SettingsGroup(title = "Security", icon = Icons.Default.Lock) {
-                TdtLockToggle(enabled = tdtLockEnabled, onToggle = onTdtLockToggle)
-            }
+        SettingsGroup(title = "Security", icon = Icons.Default.Lock) {
+            TdtLockToggle(enabled = tdtLockEnabled, onToggle = onTdtLockToggle)
         }
 
         // Authentication Controls Group
-        item {
-            SettingsGroup(title = "Authentication", icon = Icons.Default.Security) {
-                AuthenticationScreen(viewModel = authenticationViewModel)
-            }
+        SettingsGroup(title = "Authentication", icon = Icons.Default.Security) {
+            AuthenticationScreen(viewModel = authenticationViewModel)
         }
 
         // Enrollment Controls Group
-        item {
-            SettingsGroup(title = "Enrollment", icon = Icons.Default.PersonAdd) {
-                EnrollmentScreen(viewModel = enrollmentViewModel, targetSamples = targetSamples)
-            }
+        SettingsGroup(title = "Enrollment", icon = Icons.Default.PersonAdd) {
+            EnrollmentScreen(viewModel = enrollmentViewModel, targetSamples = targetSamples)
         }
 
         // Evaluation Section Group
-        item {
-            SettingsGroup(title = "Evaluation", icon = Icons.Default.Analytics) {
-                EvaluationScreen(viewModel = evaluationViewModel)
-            }
+        SettingsGroup(title = "Evaluation", icon = Icons.Default.Analytics) {
+            EvaluationScreen(viewModel = evaluationViewModel)
         }
     }
 }

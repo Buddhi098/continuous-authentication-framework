@@ -120,76 +120,10 @@ fun AuthenticationScreen(viewModel: AuthenticationViewModel) {
                 }
 
                 // --- Main Pulse/Status Display ---
-                Box(contentAlignment = Alignment.Center, modifier = Modifier.size(200.dp)) {
-                        val primaryColor = MaterialTheme.colorScheme.primary
-
-                        // Determine detailed status color and icon
-                        val (statusColor, statusIcon) =
-                                when {
-                                        !isRunning ->
-                                                MaterialTheme.colorScheme.surfaceVariant to
-                                                        Icons.Default.Lock
-                                        lastAuthResult?.isAuthenticated == true ->
-                                                SuccessDark to Icons.Default.Fingerprint
-                                        lastAuthResult?.isAuthenticated == false ->
-                                                ErrorDark to Icons.Default.Warning
-                                        else -> primaryColor to Icons.Default.Fingerprint
-                                }
-
-                        // Pulse Animation
-                        if (isRunning) {
-                                val infiniteTransition = rememberInfiniteTransition()
-                                val scale by
-                                        infiniteTransition.animateFloat(
-                                                initialValue = 1f,
-                                                targetValue = 1.4f,
-                                                animationSpec =
-                                                        infiniteRepeatable(
-                                                                animation = tween(1500),
-                                                                repeatMode = RepeatMode.Restart
-                                                        )
-                                        )
-                                val alpha by
-                                        infiniteTransition.animateFloat(
-                                                initialValue = 0.5f,
-                                                targetValue = 0f,
-                                                animationSpec =
-                                                        infiniteRepeatable(
-                                                                animation = tween(1500),
-                                                                repeatMode = RepeatMode.Restart
-                                                        )
-                                        )
-
-                                Box(
-                                        modifier =
-                                                Modifier.size(
-                                                                100.dp
-                                                        ) // Base size matches inner circle
-                                                        .scale(scale)
-                                                        .clip(CircleShape)
-                                                        .background(statusColor.copy(alpha = alpha))
-                                )
-                        }
-
-                        // Central Icon Circle
-                        Surface(
-                                shape = CircleShape,
-                                color = MaterialTheme.colorScheme.surface,
-                                border =
-                                        androidx.compose.foundation.BorderStroke(4.dp, statusColor),
-                                modifier = Modifier.size(120.dp),
-                                shadowElevation = 8.dp
-                        ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                        Icon(
-                                                imageVector = statusIcon,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(48.dp),
-                                                tint = statusColor
-                                        )
-                                }
-                        }
-                }
+                AuthStatusPulse(
+                        isRunning = isRunning,
+                        isAuthenticated = lastAuthResult?.isAuthenticated
+                )
 
                 // --- Metrics Grid ---
                 if (isRunning && lastAuthResult != null) {
@@ -271,6 +205,76 @@ fun MetricCard(label: String, value: String, modifier: Modifier = Modifier) {
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                }
+        }
+}
+
+@Composable
+fun AuthStatusPulse(
+    isRunning: Boolean,
+    isAuthenticated: Boolean?
+) {
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.size(200.dp)) {
+                val primaryColor = MaterialTheme.colorScheme.primary
+
+                val (statusColor, statusIcon) =
+                        when {
+                                !isRunning ->
+                                        MaterialTheme.colorScheme.surfaceVariant to Icons.Default.Lock
+                                isAuthenticated == true ->
+                                        SuccessDark to Icons.Default.Fingerprint
+                                isAuthenticated == false ->
+                                        ErrorDark to Icons.Default.Warning
+                                else -> primaryColor to Icons.Default.Fingerprint
+                        }
+
+                if (isRunning) {
+                        val infiniteTransition = rememberInfiniteTransition()
+                        val scale by
+                                infiniteTransition.animateFloat(
+                                        initialValue = 1f,
+                                        targetValue = 1.4f,
+                                        animationSpec =
+                                                infiniteRepeatable(
+                                                        animation = tween(1500),
+                                                        repeatMode = RepeatMode.Restart
+                                                )
+                                )
+                        val alpha by
+                                infiniteTransition.animateFloat(
+                                        initialValue = 0.5f,
+                                        targetValue = 0f,
+                                        animationSpec =
+                                                infiniteRepeatable(
+                                                        animation = tween(1500),
+                                                        repeatMode = RepeatMode.Restart
+                                                )
+                                )
+
+                        Box(
+                                modifier =
+                                        Modifier.size(100.dp)
+                                                .scale(scale)
+                                                .clip(CircleShape)
+                                                .background(statusColor.copy(alpha = alpha))
+                        )
+                }
+
+                Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surface,
+                        border = androidx.compose.foundation.BorderStroke(4.dp, statusColor),
+                        modifier = Modifier.size(120.dp),
+                        shadowElevation = 8.dp
+                ) {
+                        Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                        imageVector = statusIcon,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(48.dp),
+                                        tint = statusColor
+                                )
+                        }
                 }
         }
 }

@@ -14,6 +14,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 class EnrollmentViewModel(private val context: Context, private val auth: ContinuousAuth) :
         ViewModel() {
@@ -53,27 +55,33 @@ class EnrollmentViewModel(private val context: Context, private val auth: Contin
     private var frequencyJob: Job? = null
 
     init {
-        try {
-            _threshold.value = auth.getThreshold() ?: 0f
-            _fusionThreshold.value = auth.getFusionThreshold() ?: 0f
-            Log.d(
-                    TAG,
-                    "Loaded thresholds: sensor=${_threshold.value}, fusion=${_fusionThreshold.value}"
-            )
+        viewModelScope.launch {
+            try {
+                val sensorThreshold = withContext(Dispatchers.IO) { auth.getThreshold() } ?: 0f
+                val fusionThresholdVal = withContext(Dispatchers.IO) { auth.getFusionThreshold() } ?: 0f
 
-            if (_threshold.value > 0f) {
-                // Load metadata if model exists
-                val count = auth.getTrainedSampleCount()
-                if (count != null) {
-                    _trainedSampleCount.value = count
+                _threshold.value = sensorThreshold
+                _fusionThreshold.value = fusionThresholdVal
+
+                Log.d(
+                        TAG,
+                        "Loaded thresholds: sensor=${_threshold.value}, fusion=${_fusionThreshold.value}"
+                )
+
+                if (_threshold.value > 0f) {
+                    // Load metadata if model exists
+                    val count = withContext(Dispatchers.IO) { auth.getTrainedSampleCount() }
+                    if (count != null) {
+                        _trainedSampleCount.value = count
+                    }
+                    onEnrollmentCompleted()
                 }
-                onEnrollmentCompleted()
-            }
 
-            observeEnrollmentResults()
-        } catch (e: Exception) {
-            Log.e(TAG, "Initialization failed", e)
-            _statusMessage.value = "Initialization error"
+                observeEnrollmentResults()
+            } catch (e: Exception) {
+                Log.e(TAG, "Initialization failed", e)
+                _statusMessage.value = "Initialization error"
+            }
         }
     }
 
