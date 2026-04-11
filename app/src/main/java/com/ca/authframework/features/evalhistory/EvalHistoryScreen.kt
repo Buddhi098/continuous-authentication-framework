@@ -221,11 +221,7 @@ private fun EvaluationRecordCard(record: EvaluationRecord, onDelete: () -> Unit)
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceEvenly
             ) {
-                MetricItem(label = "Confidence", value = "%.1f%%".format(record.avgConfidence))
-                MetricItem(
-                        label = "TDT Accuracy",
-                        value = "%.1f%%".format(record.tdtAccuracy * 100)
-                )
+                MetricItem(label = "Confidence", value = "%.1f%%".format(record.finalConfidence))
                 MetricItem(label = "Samples", value = record.samplesProcessed.toString())
             }
 

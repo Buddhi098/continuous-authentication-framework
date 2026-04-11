@@ -217,12 +217,12 @@ fun EvaluationScreen(viewModel: EvaluationViewModel) {
                                         verticalArrangement = Arrangement.Center
                                 ) {
                                         Text(
-                                                "Avg Confidence",
+                                                "Final Confidence",
                                                 style = MaterialTheme.typography.labelMedium
                                         )
                                         Text(
                                                 text =
-                                                        "${"%.1f".format(viewModel.authPercentage)}%",
+                                                        "${"%.1f".format(viewModel.finalConfidence)}%",
                                                 style = MaterialTheme.typography.displaySmall,
                                                 fontWeight = FontWeight.Bold,
                                                 color = MaterialTheme.colorScheme.onPrimaryContainer
@@ -230,37 +230,7 @@ fun EvaluationScreen(viewModel: EvaluationViewModel) {
                                 }
                         }
 
-                        // TDT Accuracy Card
-                        ElevatedCard(
-                                modifier = Modifier.weight(1f).height(140.dp),
-                                colors =
-                                        CardDefaults.elevatedCardColors(
-                                                containerColor = SuccessDark.copy(alpha = 0.2f)
-                                        )
-                        ) {
-                                Column(
-                                        modifier = Modifier.fillMaxSize().padding(12.dp),
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        verticalArrangement = Arrangement.Center
-                                ) {
-                                        Text(
-                                                "TDT Accuracy",
-                                                style = MaterialTheme.typography.labelMedium
-                                        )
-                                        Text(
-                                                text =
-                                                        "${"%.1f".format(viewModel.tdtAccuracy * 100)}%",
-                                                style = MaterialTheme.typography.displaySmall,
-                                                fontWeight = FontWeight.Bold,
-                                                color = SuccessDark
-                                        )
-                                        Text(
-                                                text = "Last Window",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                }
-                        }
+
                 }
 
                 // --- Detailed Stats ---
@@ -275,12 +245,6 @@ fun EvaluationScreen(viewModel: EvaluationViewModel) {
                                 StatRow("Average Score", "%.4f".format(viewModel.averageScore))
                                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
                                 StatRow("Median Score", "%.4f".format(viewModel.medianScore))
-                                HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                                StatRow(
-                                        "Last Score",
-                                        viewModel.lastAuthResult?.authenticationScore?.let { "%.4f".format(it) }
-                                                ?: "-"
-                                )
                         }
                 }
 

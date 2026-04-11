@@ -21,8 +21,7 @@ class EvaluationRepository(context: Context) {
         private const val KEY_TIMESTAMP = "timestamp"
         private const val KEY_EVALUATOR_NAME = "evaluatorName"
         private const val KEY_EVALUATOR_LABEL = "evaluatorLabel"
-        private const val KEY_AVG_CONFIDENCE = "avgConfidence"
-        private const val KEY_TDT_ACCURACY = "tdtAccuracy"
+        private const val KEY_FINAL_CONFIDENCE = "finalConfidence"
         private const val KEY_SAMPLES_PROCESSED = "samplesProcessed"
         private const val KEY_AVERAGE_SCORE = "averageScore"
         private const val KEY_MEDIAN_SCORE = "medianScore"
@@ -82,8 +81,7 @@ class EvaluationRepository(context: Context) {
             put(KEY_TIMESTAMP, record.timestamp)
             put(KEY_EVALUATOR_NAME, record.evaluatorName)
             put(KEY_EVALUATOR_LABEL, record.evaluatorLabel.name)
-            put(KEY_AVG_CONFIDENCE, record.avgConfidence)
-            put(KEY_TDT_ACCURACY, record.tdtAccuracy.toDouble())
+            put(KEY_FINAL_CONFIDENCE, record.finalConfidence)
             put(KEY_SAMPLES_PROCESSED, record.samplesProcessed)
             put(KEY_AVERAGE_SCORE, record.averageScore)
             put(KEY_MEDIAN_SCORE, record.medianScore)
@@ -96,8 +94,7 @@ class EvaluationRepository(context: Context) {
                 timestamp = obj.getLong(KEY_TIMESTAMP),
                 evaluatorName = obj.getString(KEY_EVALUATOR_NAME),
                 evaluatorLabel = EvaluatorLabel.valueOf(obj.getString(KEY_EVALUATOR_LABEL)),
-                avgConfidence = obj.getDouble(KEY_AVG_CONFIDENCE),
-                tdtAccuracy = obj.getDouble(KEY_TDT_ACCURACY).toFloat(),
+                finalConfidence = obj.optDouble(KEY_FINAL_CONFIDENCE, obj.optDouble("avgConfidence", 0.0)),
                 samplesProcessed = obj.getInt(KEY_SAMPLES_PROCESSED),
                 averageScore = obj.optDouble(KEY_AVERAGE_SCORE, 0.0),
                 medianScore = obj.optDouble(KEY_MEDIAN_SCORE, 0.0)

@@ -17,8 +17,7 @@ data class EvaluationRecord(
         val timestamp: Long = System.currentTimeMillis(),
         val evaluatorName: String,
         val evaluatorLabel: EvaluatorLabel,
-        val avgConfidence: Double,
-        val tdtAccuracy: Float,
+        val finalConfidence: Double,
         val samplesProcessed: Int,
         val averageScore: Double = 0.0,
         val medianScore: Double = 0.0

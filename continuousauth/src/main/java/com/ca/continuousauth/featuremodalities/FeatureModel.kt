@@ -17,7 +17,8 @@ import com.ca.continuousauth.utils.Logger
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
-
+import kotlinx.coroutines.flow.filterNotNull
+// Add other necessary imports...
 data class DualFeatureVector(
     val sensorVector: Any,       // List<Float> or List<List<Float>>
     val fusionVector: Any? = null, // List<Float> or List<List<Float>> or null
@@ -117,6 +118,7 @@ class FeatureModel {
         var latchedTouchFeatures: List<Float>? = null
         var latchedTouchTime: Long = -1L
         var latchConsumed = true
+        var lastDynamicVector: List<Float>? = null // Tracks distinct emissions
 
         val dualFlow = combine(
             dynamicSensorFlow,
@@ -125,23 +127,28 @@ class FeatureModel {
         ) { dynamicOutput, staticOutput, touchPair ->
 
             val (touchTime, touchFeatures) = touchPair
-
-            // ✅ Dynamic → flatten BEFORE emitting
-            val dynamicVector = flattenFeatureOutput(dynamicOutput) ?: emptyList()
-
-            // ✅ Static → only used internally
-            val staticVector = flattenFeatureOutput(staticOutput) ?: emptyList()
-
             val touchVector = flattenFeatureOutput(touchFeatures) ?: emptyList()
-
             val isTouchNonZero = touchVector.any { it != 0f }
 
             /* ----------- LATCH TOUCH ----------- */
+            // We evaluate touch first so it doesn't get skipped if we drop the emission below
             if (isTouchNonZero && touchTime != latchedTouchTime) {
                 latchedTouchFeatures = touchVector
                 latchedTouchTime = touchTime
                 latchConsumed = false
             }
+
+            // ✅ Dynamic → flatten BEFORE emitting
+            val dynamicVector = flattenFeatureOutput(dynamicOutput) ?: emptyList()
+
+            // 🛑 ONLY proceed if the dynamic sensor vector is distinctly new
+            if (dynamicVector == lastDynamicVector) {
+                return@combine null
+            }
+            lastDynamicVector = dynamicVector
+
+            // ✅ Static → only used internally
+            val staticVector = flattenFeatureOutput(staticOutput) ?: emptyList()
 
             var fusionVector: List<Float>? = null
             var emittedTouchTime = touchTime
@@ -167,7 +174,7 @@ class FeatureModel {
                 touchTime = emittedTouchTime
             )
 
-        }.conflate()
+        }.filterNotNull().conflate()
 
         return dualFlow
     }

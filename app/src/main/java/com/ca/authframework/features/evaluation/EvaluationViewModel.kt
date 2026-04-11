@@ -8,7 +8,6 @@ import com.ca.authframework.features.authentication.AuthenticationViewModel
 import com.ca.authframework.features.evalhistory.EvaluationRecord
 import com.ca.authframework.features.evalhistory.EvaluationRepository
 import com.ca.authframework.features.evalhistory.EvaluatorLabel
-import com.ca.authframework.features.tdtlock.TdtComputer
 
 /**
  * EvaluationViewModel - Manages evaluation state and coordinates with AuthenticationViewModel This
@@ -34,7 +33,7 @@ class EvaluationViewModel(
     var processedSamples by mutableStateOf(0)
         private set
 
-    var authPercentage by mutableStateOf(0.0)
+    var finalConfidence by mutableStateOf(0.0)
         private set
 
     var averageScore by mutableStateOf(0.0)
@@ -43,7 +42,6 @@ class EvaluationViewModel(
     var medianScore by mutableStateOf(0.0)
         private set
 
-    private var acceptedCount = 0
     private var totalScoreSum = 0.0
     private val scoreBuffer = mutableListOf<Float>()
 
@@ -54,16 +52,7 @@ class EvaluationViewModel(
     private var currentEvaluatorName: String = ""
     private var currentEvaluatorLabel: EvaluatorLabel = EvaluatorLabel.LEGITIMATE
 
-    // Local TDT Computer for evaluation-scoped metrics
-    private val localTdtComputer = TdtComputer()
-
-    val tdtAccuracy: Float
-        get() = localTdtComputer.tdtAccuracy.value.toDouble().run { this }.toFloat()
-    val authenticatedWindows: Int
-        get() = localTdtComputer.authenticatedWindows.value
-    val totalWindows: Int
-        get() = localTdtComputer.totalWindows.value
-
+    // Obsolete TDT variables have been removed
     /** Start evaluation with specified number of samples and evaluator info */
     fun startEvaluation(samples: Int, evaluatorName: String, evaluatorLabel: EvaluatorLabel) {
         if (samples <= 0 || evaluationRunning) return
@@ -99,27 +88,20 @@ class EvaluationViewModel(
 
     private fun resetStats() {
         processedSamples = 0
-        acceptedCount = 0
         totalScoreSum = 0.0
         scoreBuffer.clear()
-        authPercentage = 0.0
+        finalConfidence = 0.0
         averageScore = 0.0
         medianScore = 0.0
         lastAuthResult = null
-
-        // Reset local TDT
-        localTdtComputer.reset()
     }
 
     private fun processResult(result: com.ca.continuousauth.states.AuthVectorResult) {
         lastAuthResult = result
         processedSamples++
 
-        // Update Local Metrics
-        if (result.isAuthenticated) {
-            acceptedCount++
-        }
-        authPercentage = (acceptedCount.toDouble() / processedSamples) * 100.0
+        // Update Confidence directly from result
+        finalConfidence = result.weightedConfidence * 100.0
 
         result.authenticationScore?.let { score ->
             totalScoreSum += score
@@ -127,9 +109,6 @@ class EvaluationViewModel(
             scoreBuffer.add(score)
             medianScore = calculateMedian(scoreBuffer)
         }
-
-        // Update Local TDT
-        localTdtComputer.addResult(result.isAuthenticated)
     }
 
     /** Stop the current evaluation and save record */
@@ -144,8 +123,7 @@ class EvaluationViewModel(
                     EvaluationRecord(
                             evaluatorName = currentEvaluatorName,
                             evaluatorLabel = currentEvaluatorLabel,
-                            avgConfidence = authPercentage,
-                            tdtAccuracy = tdtAccuracy,
+                            finalConfidence = finalConfidence,
                             samplesProcessed = processedSamples,
                             averageScore = averageScore,
                             medianScore = medianScore

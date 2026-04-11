@@ -40,11 +40,14 @@ class EnrollmentManager(
 
             Logger.d("Enrollment started with ${dataSet.size} samples")
 
-            // 1️⃣ Train model using the full dataset
-            authModel.runTrainingSession(dataSet, ephocs)
+            // ✅ 0️⃣ Shuffle dataset before training
+            val shuffledDataSet = dataSet.shuffled()
 
-            // 2️⃣ Calculate threshold using the full dataset
-            val threshold = calculateThreshold(dataSet) ?: return EnrollmentResult(
+            // 1️⃣ Train model using shuffled dataset
+            authModel.runTrainingSession(shuffledDataSet, ephocs)
+
+            // 2️⃣ Calculate threshold using shuffled dataset (optional but consistent)
+            val threshold = calculateThreshold(shuffledDataSet) ?: return EnrollmentResult(
                 success = false,
                 message = "Threshold calculation failed"
             )
@@ -66,7 +69,7 @@ class EnrollmentManager(
             }
 
             // 5️⃣ Persist metadata (sample count)
-            val sampleCount = dataSet.size
+            val sampleCount = shuffledDataSet.size
             saveMetadata(sampleCount)
 
             Logger.d("Enrollment successful. Threshold=$threshold, Samples=$sampleCount")
@@ -92,7 +95,7 @@ class EnrollmentManager(
     // Optimization: Use FloatArray instead of List<Float> to save boxing overhead
     fun calculateThreshold(
             validationSet: List<List<Float>>,
-            percentile: Float = 80f,
+            percentile: Float = 82f,
             strictness: Float = 1.5f // Standard IQR multiplier (1.5 is standard, 3.0 is loose)
     ): Float? {
         // 1. Gather scores (reuse ArrayList to avoid resizing overhead)

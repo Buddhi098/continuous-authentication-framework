@@ -94,13 +94,13 @@ private constructor(
         /* -------------------- Model Training --------------------- */
         private var sensorFeatureDimension: Int = 8
         private var sensorInputDim: String = "2D"
-        private var fusionFeatureDimension: Int = 46
+        private var fusionFeatureDimension: Int = 29
         private var fusionInputDim: String = "1D"
 
         private var sensorModelFileName: String = "sensor_model.tflite"
         private var fusionModelFileName: String = "fusion_model.tflite"
         private var sensorTrainingEpochs: Int = 80
-        private var fusionTrainingEpochs: Int = 100
+        private var fusionTrainingEpochs: Int = 120
         private var trainingBatchSize: Int = 32
         private var sensorScoreWeight: Float = 0.2f
         private var fusionScoreWeight: Float = 0.8f

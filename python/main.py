@@ -7,8 +7,6 @@ Usage:
 import tensorflow as tf
 from config import EXPORT_PATH, SENSOR_TFLITE_FILE_PATH, FUSION_TFLITE_FILE_PATH, SENSOR_INPUT_DIM, FUSION_INPUT_DIM ,SEQUENCE_LENGTH , BATCH_SIZE
 from converters import TFLiteConverter
-# from models.oca_autoencoder_sensor import HybridAASensor
-# from models.oca_autoencoder_fused import OneClassAdversarialAutoencoderFused
 from models.sensor import SensorAuthenticator
 from models.fusion import MaskedFusionAuthenticator
 

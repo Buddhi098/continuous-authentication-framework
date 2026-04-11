@@ -2,14 +2,12 @@ package com.ca.continuousauth.featuremodalities.rawdatacollectors
 
 import com.ca.continuousauth.states.TouchEventData
 import com.ca.continuousauth.utils.Logger
-import kotlin.math.abs
-import kotlin.math.sqrt
+import kotlin.math.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.*
 
-/** Touch action constants for clarity and maintainability. */
 private object TouchAction {
     const val ACTION_DOWN = 0
     const val ACTION_UP = 1
@@ -17,237 +15,209 @@ private object TouchAction {
 }
 
 /**
- * Encapsulates all mutable gesture tracking state. This allows atomic updates and clear lifecycle
- * management.
+ * Immutable snapshot of a gesture.
+ * Lists are copied to prevent concurrent modification exceptions during Flow processing.
+ */
+private data class GestureSnapshot(
+    val startX: Float,
+    val startY: Float,
+    val endX: Float,
+    val endY: Float,
+    val startTime: Long,
+    val endTime: Long,
+    val pressure: List<Float>,
+    val size: List<Float>,
+    val speeds: List<Float>,
+    val accelerations: List<Float>,
+    val pathLength: Float
+)
+
+/**
+ * High-performance gesture tracker.
+ * Focuses on point-to-point kinematics rather than overarching spatial tracking.
  */
 private class GestureState {
-    var startX: Float = 0f
-    var startY: Float = 0f
-    var lastX: Float = 0f
-    var lastY: Float = 0f
-    var lastTimestamp: Long = 0L
-    var totalDistance: Float = 0f
 
-    val pressureList = mutableListOf<Float>()
-    val sizeList = mutableListOf<Float>()
-    val orientationList = mutableListOf<Float>()
-    val speedList = mutableListOf<Float>()
-    val pointerList = mutableListOf<Int>()
-    val majorMinorRatioList = mutableListOf<Float>()
+    private var startX = 0f
+    private var startY = 0f
+    private var lastX = 0f
+    private var lastY = 0f
+    private var lastTime = 0L
+    private var pathLength = 0f
 
-    /** Resets all gesture state for a new touch gesture. */
-    fun reset(x: Float, y: Float, timestamp: Long) {
+    val pressure = ArrayList<Float>(32)
+    val size = ArrayList<Float>(32)
+    val speed = ArrayList<Float>(32)
+    val acceleration = ArrayList<Float>(32)
+
+    fun reset(x: Float, y: Float, t: Long) {
         startX = x
         startY = y
         lastX = x
         lastY = y
-        lastTimestamp = timestamp
-        totalDistance = 0f
+        lastTime = t
+        pathLength = 0f
 
-        pressureList.clear()
-        sizeList.clear()
-        orientationList.clear()
-        speedList.clear()
-        pointerList.clear()
-        majorMinorRatioList.clear()
+        pressure.clear()
+        size.clear()
+        speed.clear()
+        acceleration.clear()
     }
 
-    /** Records initial touch data on ACTION_DOWN. */
-    fun recordInitialData(event: TouchEventData) {
-        pressureList.add(event.pressure)
-        sizeList.add(event.size)
-        orientationList.add(event.orientation)
-        pointerList.add(event.pointerCount)
-        majorMinorRatioList.add(computeMajorMinorRatio(event))
-    }
-
-    /** Updates state with move event data. */
-    fun addMoveData(event: TouchEventData): Float {
+    fun add(event: TouchEventData) {
+        val dt = max(1L, event.timestamp - lastTime).toFloat()
         val dx = event.x - lastX
         val dy = event.y - lastY
-        val dt = (event.timestamp - lastTimestamp).coerceAtLeast(1L)
 
-        val distance = sqrt(dx * dx + dy * dy)
-        val speed = distance / dt.toFloat()
+        val dist = sqrt(dx * dx + dy * dy)
+        val vel = dist / dt // Instantaneous velocity (pixels/ms)
 
-        totalDistance += distance
-        speedList.add(speed)
+        // Calculate point-to-point acceleration if we have a previous speed
+        if (speed.isNotEmpty()) {
+            val accel = (vel - speed.last()) / dt
+            acceleration.add(accel)
+        }
+
+        pathLength += dist
+
+        pressure.add(event.pressure)
+        size.add(event.size)
+        speed.add(vel)
+
         lastX = event.x
         lastY = event.y
-        lastTimestamp = event.timestamp
-
-        pressureList.add(event.pressure)
-        sizeList.add(event.size)
-        orientationList.add(event.orientation)
-        pointerList.add(event.pointerCount)
-        majorMinorRatioList.add(computeMajorMinorRatio(event))
-
-        return speed
+        lastTime = event.timestamp
     }
 
-    private fun computeMajorMinorRatio(event: TouchEventData): Float =
-            if (event.touchMinor != 0f) event.touchMajor / event.touchMinor else 0f
+    fun buildSnapshot(endEvent: TouchEventData): GestureSnapshot {
+        return GestureSnapshot(
+            startX = startX,
+            startY = startY,
+            endX = endEvent.x,
+            endY = endEvent.y,
+            startTime = endEvent.downTime,
+            endTime = endEvent.timestamp,
+            // .toList() prevents downstream mutation bugs
+            pressure = pressure.toList(),
+            size = size.toList(),
+            speeds = speed.toList(),
+            accelerations = acceleration.toList(),
+            pathLength = pathLength
+        )
+    }
 }
 
 /**
- * Collects touch event data and emits aggregated feature vectors at a configurable frequency.
- *
- * Design notes:
- * - Emits a 14-element feature vector capturing gesture dynamics
- * - Uses atomic reference for thread-safe vector updates
- * - Applies buffer strategy to prevent data loss during high-frequency touch events
- * - Handles null touchEventFlow gracefully with fallback zero emissions
+ * TOUCH FEATURE COLLECTOR
+ * Optimized for Anomaly Detection (Continuous Authentication).
+ * Extracts 11 high-signal, UI-agnostic behavioral features.
  */
 class TouchDataCollector(
-        private val touchEventFlow: Flow<TouchEventData>?,
-        private val dispatcher: CoroutineDispatcher = Dispatchers.Default
-) : RawDataCollector<List<Float>> {
-
-    override val modalityName: String = "TOUCH"
+    private val touchEventFlow: Flow<TouchEventData>?,
+    private val dispatcher: CoroutineDispatcher = Dispatchers.Default
+) {
 
     companion object {
-        private const val FEATURE_VECTOR_SIZE = 14
-        private const val BUFFER_CAPACITY = 100
+        private const val BUFFER_CAPACITY = 128
+        private const val FEATURE_SIZE = 11 // Refined down to the most discriminative 11
     }
 
-    override fun start(): Flow<Pair<Long, List<Float>>> =
-            callbackFlow {
-                        // Emit initial zero vector so combine is not blocked
-                        trySend(System.currentTimeMillis() to zeroVector()).isSuccess
+    fun start(): Flow<Pair<Long, List<Float>>> =
+        callbackFlow {
 
-                        // ------------------------------------------------
-                        // CASE 1: TouchEventFlow NOT available → Fallback
-                        // ------------------------------------------------
-                        if (touchEventFlow == null) {
-                            Logger.d(
-                                    "TouchEventFlow is null. Emitted initial zero vector. Suspending."
-                            )
-                            awaitClose {}
-                            return@callbackFlow
+            trySend(System.currentTimeMillis() to zeroVector())
+
+            if (touchEventFlow == null) {
+                Logger.d("Touch flow null → fallback mode")
+                awaitClose {}
+                return@callbackFlow
+            }
+
+            val state = GestureState()
+
+            val job = touchEventFlow.onEach { event ->
+
+                when (event.action) {
+                    TouchAction.ACTION_DOWN -> {
+                        state.reset(event.x, event.y, event.timestamp)
+                    }
+                    TouchAction.ACTION_MOVE -> {
+                        state.add(event)
+                    }
+                    TouchAction.ACTION_UP -> {
+                        state.add(event)
+                        val snap = state.buildSnapshot(event)
+
+                        // Ignore micro-touches (accidental bumps)
+                        if (snap.speeds.size > 3) {
+                            val features = computeFeatures(snap)
+                            trySend(event.timestamp to features)
                         }
-
-                        // ------------------------------------------------
-                        // CASE 2: TouchEventFlow available → Process events
-                        // ------------------------------------------------
-                        val gestureState = GestureState()
-
-                        val eventJob =
-                                touchEventFlow
-                                        .onEach { event ->
-                                            when (event.action) {
-                                                TouchAction.ACTION_DOWN -> {
-                                                    gestureState.reset(
-                                                            event.x,
-                                                            event.y,
-                                                            event.timestamp
-                                                    )
-                                                    gestureState.recordInitialData(event)
-                                                    Logger.d(
-                                                            "TouchDataCollector: ACTION_DOWN at (${event.x}, ${event.y})"
-                                                    )
-                                                }
-                                                TouchAction.ACTION_MOVE -> {
-                                                    gestureState.addMoveData(event)
-                                                }
-                                                TouchAction.ACTION_UP -> {
-                                                    val vector =
-                                                            computeFeatureVector(
-                                                                    event,
-                                                                    gestureState
-                                                            )
-                                                    val hasNonZero = vector.any { it != 0f }
-                                                    Logger.d(
-                                                            "TouchDataCollector: ACTION_UP - computed feature vector (dim=${vector.size}, hasNonZero=$hasNonZero)"
-                                                    )
-                                                    if (hasNonZero) {
-                                                        trySend(event.timestamp to vector).isSuccess
-                                                        Logger.d(
-                                                                "TouchDataCollector: Gesture completed - new feature emitted"
-                                                        )
-                                                    } else {
-                                                        Logger.d(
-                                                                "TouchDataCollector: Gesture completed - skipped (duplicate or zero)"
-                                                        )
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        .catch { ex ->
-                                            Logger.e(
-                                                    "TouchDataCollector: Error processing touch events",
-                                                    ex
-                                            )
-                                        }
-                                        .launchIn(this)
-
-                        awaitClose { eventJob.cancel() }
                     }
-                    // Buffer strategy: DROP_OLDEST prevents latency accumulation
-                    .buffer(
-                            capacity = BUFFER_CAPACITY,
-                            onBufferOverflow = BufferOverflow.DROP_OLDEST
-                    )
-                    .catch { ex ->
-                        Logger.e("TouchDataCollector flow error", ex)
-                        throw ex
-                    }
-                    .flowOn(dispatcher)
+                }
 
-    /** Computes the 14-element feature vector from gesture state. */
-    private fun computeFeatureVector(event: TouchEventData, state: GestureState): List<Float> {
-        val durationMs = (event.timestamp - event.downTime).coerceAtLeast(1L)
-        val dx = event.x - state.startX
-        val dy = event.y - state.startY
-        val speed = state.totalDistance / durationMs.toFloat()
+            }.catch {
+                Logger.e("TouchDataCollector error", it)
+            }.launchIn(this)
 
-        // Pressure features
-        val avgPressure = state.pressureList.averageOrZero()
-        val maxPressure = state.pressureList.maxOrNull() ?: 0f
-        val minPressure = state.pressureList.minOrNull() ?: 0f
-        val pressureVar = variance(state.pressureList)
+            awaitClose { job.cancel() }
+        }
+            .buffer(BUFFER_CAPACITY, BufferOverflow.DROP_OLDEST)
+            .flowOn(dispatcher)
 
-        // Size features
-        val avgSize = state.sizeList.averageOrZero()
-        val maxSize = state.sizeList.maxOrNull() ?: 0f
-        val minSize = state.sizeList.minOrNull() ?: 0f
+    /**
+     * Extracts pure behavioral and physiological features.
+     * UI-agnostic: Does not care where the swipe happened or how long it was.
+     */
+    private fun computeFeatures(s: GestureSnapshot): List<Float> {
 
-        // Orientation
-        val avgOrientation = state.orientationList.averageOrZero()
+        val dx = s.endX - s.startX
+        val dy = s.endY - s.startY
+        val straightLineDist = sqrt(dx * dx + dy * dy)
+        val duration = max(1L, s.endTime - s.startTime).toFloat()
 
-        // Speed features
-        val maxSpeed = state.speedList.maxOrNull() ?: 0f
-        val acceleration =
-                if (state.speedList.size > 1) {
-                    (state.speedList.last() - state.speedList.first()) / durationMs.toFloat()
-                } else 0f
+        // 1. Timing
+        val durationSec = duration / 1000f
+
+        // 2. Trajectory Dynamics (Curvature of the swipe)
+        // Values close to 1.0 = straight line. Lower values = curved/wobbly swiper.
+        val efficiency = if (s.pathLength > 0f) straightLineDist / s.pathLength else 0f
+
+        // 3. Kinematics (Speed & Acceleration Profiles)
+        val meanSpeed = s.speeds.average().toFloat()
+        val stdSpeed = std(s.speeds)
+        val maxSpeed = s.speeds.maxOrNull() ?: 0f
+
+        val meanAccel = if (s.accelerations.isNotEmpty()) s.accelerations.average().toFloat() else 0f
+        val stdAccel = std(s.accelerations)
+
+        // 4. Physiological Traits (Biometric interaction forces)
+        val meanPressure = s.pressure.average().toFloat()
+        val stdPressure = std(s.pressure) // Represents finger "roll" and grip change
+        val meanSize = s.size.average().toFloat() // Represents physical finger surface area
+        val stdSize = std(s.size) // Represents physical deformation during movement
 
         return listOf(
-                abs(dx), // 0: total x displacement
-                abs(dy), // 1: total y displacement
-                speed, // 2: average speed
-                durationMs / 1000f, // 3: duration in seconds
-                avgPressure, // 4: average pressure
-                maxPressure, // 5: max pressure
-                minPressure, // 6: min pressure
-                pressureVar, // 7: pressure variance
-                avgSize, // 8: average size
-                maxSize, // 9: max size
-                minSize, // 10: min size
-                avgOrientation, // 11: average orientation
-                maxSpeed, // 12: max speed
-                acceleration // 13: acceleration
+            durationSec,      // 0
+            efficiency,       // 1
+            meanSpeed,        // 2
+            stdSpeed,         // 3
+            maxSpeed,         // 4
+            meanAccel,        // 5
+            stdAccel,         // 6
+            meanPressure,     // 7
+            stdPressure,      // 8
+            meanSize,         // 9
+            stdSize           // 10
         )
     }
 
-    private fun zeroVector(): List<Float> = List(FEATURE_VECTOR_SIZE) { 0f }
+    private fun zeroVector() = List(FEATURE_SIZE) { 0f }
 
-    /** Computes variance using a numerically stable single-pass approach. */
-    private fun variance(list: List<Float>): Float {
-        if (list.isEmpty()) return 0f
+    private fun std(list: List<Float>): Float {
+        if (list.size <= 1) return 0f
         val mean = list.average()
-        return (list.sumOf { (it - mean) * (it - mean) } / list.size).toFloat()
+        val variance = list.sumOf { (it - mean).pow(2) } / list.size
+        return sqrt(variance).toFloat()
     }
-
-    /** Extension to safely compute average or return 0 for empty lists. */
-    private fun List<Float>.averageOrZero(): Float = if (isEmpty()) 0f else average().toFloat()
 }
