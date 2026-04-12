@@ -3,6 +3,7 @@ package com.ca.continuousauth.featuremodalities
 import android.content.Context
 import com.ca.continuousauth.config.AuthConfigManager
 import com.ca.continuousauth.featuremodalities.dataprocessing.denoisers.denoisercollection.KalmanDenoiser
+import com.ca.continuousauth.featuremodalities.dataprocessing.denoisers.denoisercollection.LowpassDenoiser
 import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.featureextractorcollection.RawSequenceFeatureExtractor
 import com.ca.continuousauth.featuremodalities.dataprocessing.featureextractors.featureextractorcollection.SensorFeatureExtractor
 import com.ca.continuousauth.featuremodalities.dataprocessing.scalers.Scaler
@@ -55,13 +56,13 @@ class FeatureModel {
             SensorPipelineConfig(
                 sensorKey = "gyro",
                 selector = { it.gyro },
-                denoisers = listOf(KalmanDenoiser()),
+                denoisers = listOf(LowpassDenoiser()),
                 featureExtractors = listOf(RawSequenceFeatureExtractor())
             ),
             SensorPipelineConfig(
                 sensorKey = "acc",
                 selector = { it.accel },
-                denoisers = listOf(KalmanDenoiser()),
+                denoisers = listOf(LowpassDenoiser()),
                 featureExtractors = listOf(RawSequenceFeatureExtractor())
             )
         )
@@ -73,7 +74,7 @@ class FeatureModel {
             SensorPipelineConfig(
                 sensorKey = "gyro",
                 selector = { it.gyro },
-                denoisers = listOf(KalmanDenoiser()),
+                denoisers = listOf(LowpassDenoiser()),
                 featureExtractors = listOf(SensorFeatureExtractor())
             ),
             SensorPipelineConfig(
