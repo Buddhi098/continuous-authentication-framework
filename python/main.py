@@ -8,7 +8,7 @@ import tensorflow as tf
 from config import EXPORT_PATH, SENSOR_TFLITE_FILE_PATH, FUSION_TFLITE_FILE_PATH, SENSOR_INPUT_DIM, FUSION_INPUT_DIM ,SEQUENCE_LENGTH , BATCH_SIZE
 from converters import TFLiteConverter
 from models.sensor import SensorAuthenticator
-from models.fusion import SVDDAuthCore
+from models.fusion import ResidualFeatureSVDDAuthenticator
 
 
 def main():
@@ -34,7 +34,7 @@ def main():
 
     # Create Fusion model
     print("Initializing Deep Anomaly Autoencoder (Fusion)...")
-    fusion_model = SVDDAuthCore(input_dim=FUSION_INPUT_DIM)
+    fusion_model = ResidualFeatureSVDDAuthenticator(input_dim=FUSION_INPUT_DIM)
     
     # Convert to LiteRT model
     fusion_tflite_path = converter.convert(
