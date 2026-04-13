@@ -17,8 +17,12 @@ import com.ca.continuousauth.states.TouchEventData
 import com.ca.continuousauth.utils.Logger
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicReference
+
 // Add other necessary imports...
 data class DualFeatureVector(
     val sensorVector: Any,       // List<Float> or List<List<Float>>
@@ -34,150 +38,142 @@ class FeatureModel {
         dispatcher: CoroutineDispatcher = Dispatchers.Default
     ): Flow<DualFeatureVector> {
 
-        val sampleRateHz = AuthConfigManager.config.sampleCollectionFrequencyHz
-        val windowSize = AuthConfigManager.config.windowSize.toDouble()
-        val overlap = AuthConfigManager.config.windowOverlapRatio
+        /* ----------------------------------------------------------
+           Config
+        ---------------------------------------------------------- */
+        val config       = AuthConfigManager.config
+        val sampleRateHz = config.sampleCollectionFrequencyHz
+        val windowSize   = config.windowSize.toDouble()
+        val overlap      = config.windowOverlapRatio
+        val authFreqHz   = sampleRateHz / (windowSize * (1.0 - overlap))
 
-        val stepSize = windowSize * (1.0 - overlap)
-        val authenticationFrequencyHz = sampleRateHz / stepSize
-        Logger.d("Authentication frequency = $authenticationFrequencyHz Hz")
+        Logger.d("Authentication frequency = $authFreqHz Hz")
 
         /* ----------------------------------------------------------
-           Raw Data Collectors
+           Collectors
         ---------------------------------------------------------- */
-        val gyroCollector = GyroscopeDataCollector(context, sampleRateHz, dispatcher)
+        val gyroCollector  = GyroscopeDataCollector(context, sampleRateHz, dispatcher)
         val accelCollector = AccelerometerDataCollector(context, sampleRateHz, dispatcher)
         val touchCollector = TouchDataCollector(touchEventFlow = touchEventFlow)
 
         /* ----------------------------------------------------------
-           DYNAMIC PIPELINE (2D → will be flattened)
+           Pipeline Configs
         ---------------------------------------------------------- */
         val dynamicConfigs = listOf(
             SensorPipelineConfig(
-                sensorKey = "gyro",
-                selector = { it.gyro },
-                denoisers = listOf(LowpassDenoiser()),
+                sensorKey         = "gyro",
+                selector          = { it.gyro },
+                denoisers         = listOf(KalmanDenoiser()),
                 featureExtractors = listOf(RawSequenceFeatureExtractor())
             ),
             SensorPipelineConfig(
-                sensorKey = "acc",
-                selector = { it.accel },
-                denoisers = listOf(LowpassDenoiser()),
+                sensorKey         = "acc",
+                selector          = { it.accel },
+                denoisers         = listOf(KalmanDenoiser()),
                 featureExtractors = listOf(RawSequenceFeatureExtractor())
             )
         )
 
-        /* ----------------------------------------------------------
-           STATIC PIPELINE (1D → ONLY for fusion)
-        ---------------------------------------------------------- */
         val staticConfigs = listOf(
             SensorPipelineConfig(
-                sensorKey = "gyro",
-                selector = { it.gyro },
-                denoisers = listOf(LowpassDenoiser()),
+                sensorKey         = "gyro",
+                selector          = { it.gyro },
+                denoisers         = listOf(KalmanDenoiser()),
                 featureExtractors = listOf(SensorFeatureExtractor())
             ),
             SensorPipelineConfig(
-                sensorKey = "acc",
-                selector = { it.accel },
-                denoisers = listOf(KalmanDenoiser()),
+                sensorKey         = "acc",
+                selector          = { it.accel },
+                denoisers         = listOf(KalmanDenoiser()),
                 featureExtractors = listOf(SensorFeatureExtractor())
             )
         )
 
         /* ----------------------------------------------------------
-           Synchronization (shared)
+           channelFlow gives us a CoroutineScope for background launches
         ---------------------------------------------------------- */
-        val synchronizer = SensorTimeSynchronizer(sampleRateHz)
-        val synchronizedFlow = synchronizer.synchronize(
-            gyroFlow = gyroCollector.start(),
-            accelFlow = accelCollector.start()
-        )
+        return channelFlow {
 
-        /* ----------------------------------------------------------
-           Two Sensor Feature Flows
-        ---------------------------------------------------------- */
-        val dynamicSensorFlow: Flow<Any> = collectSynchronizedSensorFeatures(
-            synchronizedFlow = synchronizedFlow,
-            sensorConfigs = dynamicConfigs
-        )
-
-        val staticSensorFlow: Flow<Any> = collectSynchronizedSensorFeatures(
-            synchronizedFlow = synchronizedFlow,
-            sensorConfigs = staticConfigs
-        )
-
-        /* ----------------------------------------------------------
-           Touch Flow
-        ---------------------------------------------------------- */
-        val touchFlow: Flow<Pair<Long, Any>> =
-            collectTouchDynamicFeature({ touchCollector.start() }, dispatcher)
-
-        /* ----------------------------------------------------------
-           Fusion Logic (STATIC + TOUCH ONLY)
-        ---------------------------------------------------------- */
-        var latchedTouchFeatures: List<Float>? = null
-        var latchedTouchTime: Long = -1L
-        var latchConsumed = true
-        var lastDynamicVector: List<Float>? = null // Tracks distinct emissions
-
-        val dualFlow = combine(
-            dynamicSensorFlow,
-            staticSensorFlow,
-            touchFlow
-        ) { dynamicOutput, staticOutput, touchPair ->
-
-            val (touchTime, touchFeatures) = touchPair
-            val touchVector = flattenFeatureOutput(touchFeatures) ?: emptyList()
-            val isTouchNonZero = touchVector.any { it != 0f }
-
-            /* ----------- LATCH TOUCH ----------- */
-            // We evaluate touch first so it doesn't get skipped if we drop the emission below
-            if (isTouchNonZero && touchTime != latchedTouchTime) {
-                latchedTouchFeatures = touchVector
-                latchedTouchTime = touchTime
-                latchConsumed = false
-            }
-
-            // ✅ Dynamic → flatten BEFORE emitting
-            val dynamicVector = flattenFeatureOutput(dynamicOutput) ?: emptyList()
-
-            // 🛑 ONLY proceed if the dynamic sensor vector is distinctly new
-            if (dynamicVector == lastDynamicVector) {
-                return@combine null
-            }
-            lastDynamicVector = dynamicVector
-
-            // ✅ Static → only used internally
-            val staticVector = flattenFeatureOutput(staticOutput) ?: emptyList()
-
-            var fusionVector: List<Float>? = null
-            var emittedTouchTime = touchTime
-
-            /* ----------- FUSION ----------- */
-            if (!latchConsumed && latchedTouchFeatures != null) {
-
-                val fusedMap = mapOf(
-                    "sensor" to staticVector,  // ONLY static used
-                    "touch" to latchedTouchFeatures!!
+            // ✅ One shared upstream — both pipelines read the same sensor data
+            val sharedSyncFlow = SensorTimeSynchronizer(sampleRateHz)
+                .synchronize(
+                    gyroFlow  = gyroCollector.start(),
+                    accelFlow = accelCollector.start()
                 )
+                .shareIn(scope = this, started = SharingStarted.Eagerly)
 
-                val fusionOutput = FusedFeatureBuilder.buildFusedFeatures(fusedMap)
-                fusionVector = flattenFeatureOutput(fusionOutput)
+            /* ----------------------------------------------------------
+               Static cache — updated in background, read instantly.
+               AtomicReference ensures safe cross-coroutine reads with NO suspension.
+            ---------------------------------------------------------- */
+            val latestStaticVector = AtomicReference<List<Float>?>(null)
 
-                emittedTouchTime = latchedTouchTime
-                latchConsumed = true
+            launch(dispatcher) {
+                collectSynchronizedSensorFeatures(sharedSyncFlow, staticConfigs)
+                    .collect { staticOutput ->
+                        flattenFeatureOutput(staticOutput)?.let { vec ->
+                            latestStaticVector.set(vec)
+                        }
+                    }
             }
 
-            DualFeatureVector(
-                sensorVector = dynamicVector, // flattened dynamic
-                fusionVector = fusionVector,
-                touchTime = emittedTouchTime
-            )
+            /* ----------------------------------------------------------
+               Touch latch — written by touch coroutine, read by dynamic loop.
+               CONFLATED so only the latest unprocessed touch is kept.
+            ---------------------------------------------------------- */
+            data class TouchLatch(val features: List<Float>, val time: Long)
 
-        }.filterNotNull().conflate()
+            val touchLatchChannel = Channel<TouchLatch>(capacity = Channel.CONFLATED)
 
-        return dualFlow
+            launch(dispatcher) {
+                var lastSeenTouchTime = -1L
+                collectTouchDynamicFeature({ touchCollector.start() }, dispatcher)
+                    .collect { (touchTime, touchFeatures) ->
+                        val vec = flattenFeatureOutput(touchFeatures) ?: return@collect
+                        if (vec.any { it != 0f } && touchTime != lastSeenTouchTime) {
+                            lastSeenTouchTime = touchTime
+                            touchLatchChannel.trySend(TouchLatch(vec, touchTime))
+                        }
+                    }
+            }
+
+            /* ----------------------------------------------------------
+               Dynamic loop — NEVER suspends for static or touch.
+               Both are read from caches; no blocking calls inside.
+            ---------------------------------------------------------- */
+            var lastDynamicVector: List<Float>? = null
+
+            collectSynchronizedSensorFeatures(sharedSyncFlow, dynamicConfigs)
+                .collect { dynamicOutput ->
+
+                    // 🛑 Skip duplicate dynamic vectors
+                    val dynamicVector = flattenFeatureOutput(dynamicOutput) ?: return@collect
+                    if (dynamicVector == lastDynamicVector) return@collect
+                    lastDynamicVector = dynamicVector
+
+                    // ✅ Non-blocking touch check
+                    val pendingTouch = touchLatchChannel.tryReceive().getOrNull()
+
+                    // ✅ Non-blocking static read — always instant, never suspends
+                    val fusionVector: List<Float>? = pendingTouch?.let { touch ->
+                        val cachedStatic = latestStaticVector.get() ?: return@let null
+                        flattenFeatureOutput(
+                            FusedFeatureBuilder.buildFusedFeatures(
+                                mapOf("sensor" to cachedStatic, "touch" to touch.features)
+                            )
+                        )
+                    }
+
+                    send(
+                        DualFeatureVector(
+                            sensorVector = dynamicVector,
+                            fusionVector = fusionVector,
+                            touchTime    = pendingTouch?.time ?: -1L
+                        )
+                    )
+                }
+
+        }.conflate()
     }
 
     /* ----------------------------------------------------------
