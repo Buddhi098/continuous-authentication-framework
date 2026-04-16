@@ -1,6 +1,7 @@
 package com.ca.continuousauth.authengine
 
 import android.content.Context
+import android.os.Debug
 import com.ca.continuousauth.authmodel.AuthModel
 import com.ca.continuousauth.data.ReEnrollmentDataManager
 import com.ca.continuousauth.utils.Logger
@@ -59,10 +60,21 @@ class AuthenticationManager(
             return failure("Model or threshold not ready")
         }
 
-        val startTime = System.nanoTime()
+        val startWallTime = System.nanoTime()
+        val startCpuTime = Debug.threadCpuTimeNanos()
+
+        // Memory before inference
+        val runtime = Runtime.getRuntime()
+        val usedMemBefore = runtime.totalMemory() - runtime.freeMemory()
 
         val score = authModel.inferScore(featureVector)
             ?: return failure("Inference failed")
+
+        // Memory after inference
+        val usedMemAfter = runtime.totalMemory() - runtime.freeMemory()
+
+        val endCpuTime = Debug.threadCpuTimeNanos()
+        val endWallTime = System.nanoTime()
 
         val threshold = cachedThreshold!!
         val isAuthenticated = score <= threshold
@@ -72,7 +84,6 @@ class AuthenticationManager(
         if (isAuthenticated) {
             successfulAuthentications.incrementAndGet()
 
-            // ✅ Store RAW vector asynchronously
             coroutineScope.launch {
                 try {
                     reEnrollmentManager.addVector(rawVector)
@@ -83,18 +94,24 @@ class AuthenticationManager(
             }
         }
 
-        val latencyMs = (System.nanoTime() - startTime) / 1_000_000.0
+        val latencyMs = (endWallTime - startWallTime) / 1_000_000.0
+        val cpuTimeMs = (endCpuTime - startCpuTime) / 1_000_000.0
+
+        val memoryUsedKB = (usedMemAfter - usedMemBefore) / 1024.0
 
         Logger.d(
-            "Auth result -> score=$score, threshold=$threshold, " +
-                    "authenticated=$isAuthenticated, latency=${"%.3f".format(latencyMs)}ms"
+            "Auth result -> score=$score, threshold=$threshold, authenticated=$isAuthenticated\n" +
+                    "Latency=${"%.3f".format(latencyMs)} ms, CPU=${"%.3f".format(cpuTimeMs)} ms, " +
+                    "RAM delta=${"%.3f".format(memoryUsedKB)} KB"
         )
 
         return mapOf(
             "isAuthenticated" to isAuthenticated,
             "score" to score,
             "threshold" to threshold,
-            "latencyMs" to latencyMs
+            "latencyMs" to latencyMs,
+            "cpuTimeMs" to cpuTimeMs,
+            "memoryDeltaKB" to memoryUsedKB
         )
     }
 
