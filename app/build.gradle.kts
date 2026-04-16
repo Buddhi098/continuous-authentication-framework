@@ -13,7 +13,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.ca.authframework"
+        applicationId = "com.ca.authframework.clone"
         minSdk = 24
         targetSdk = 36
         versionCode = 1
