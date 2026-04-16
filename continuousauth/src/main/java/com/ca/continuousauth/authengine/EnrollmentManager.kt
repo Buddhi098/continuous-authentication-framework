@@ -1,5 +1,7 @@
 package com.ca.continuousauth.authengine
 
+import android.os.Debug
+import android.os.SystemClock
 import com.ca.continuousauth.authmodel.AuthModel
 import com.ca.continuousauth.config.AuthConfigManager
 import com.ca.continuousauth.states.EnrollmentResult
@@ -30,6 +32,14 @@ class EnrollmentManager(
         dataSet: List<List<Float>>,
         ephocs: Int,
     ): EnrollmentResult {
+
+        // ✅ Start CPU time measurement
+        val startTimeNs = SystemClock.elapsedRealtimeNanos()
+
+        // ✅ Start memory measurement
+        val runtime = Runtime.getRuntime()
+        val startUsedMemory = runtime.totalMemory() - runtime.freeMemory()
+
         try {
             if (dataSet.size < 10) {
                 return EnrollmentResult(
@@ -40,19 +50,19 @@ class EnrollmentManager(
 
             Logger.d("Enrollment started with ${dataSet.size} samples")
 
-            // ✅ 0️⃣ Shuffle dataset before training
+            // 0️⃣ Shuffle dataset
             val shuffledDataSet = dataSet.shuffled()
 
-            // 1️⃣ Train model using shuffled dataset
+            // 1️⃣ Train model
             authModel.runTrainingSession(shuffledDataSet, ephocs)
 
-            // 2️⃣ Calculate threshold using shuffled dataset (optional but consistent)
+            // 2️⃣ Calculate threshold
             val threshold = calculateThreshold(shuffledDataSet) ?: return EnrollmentResult(
                 success = false,
                 message = "Threshold calculation failed"
             )
 
-            // 3️⃣ Persist model weights
+            // 3️⃣ Save model
             if (!authModel.saveCheckpoint(checkpointFile)) {
                 return EnrollmentResult(
                     success = false,
@@ -60,7 +70,7 @@ class EnrollmentManager(
                 )
             }
 
-            // 4️⃣ Persist threshold
+            // 4️⃣ Save threshold
             if (!saveThreshold(threshold)) {
                 return EnrollmentResult(
                     success = false,
@@ -68,19 +78,43 @@ class EnrollmentManager(
                 )
             }
 
-            // 5️⃣ Persist metadata (sample count)
+            // 5️⃣ Save metadata
             val sampleCount = shuffledDataSet.size
             saveMetadata(sampleCount)
 
-            Logger.d("Enrollment successful. Threshold=$threshold, Samples=$sampleCount")
+            // ✅ End CPU time
+            val endTimeNs = SystemClock.elapsedRealtimeNanos()
+            val durationMs = (endTimeNs - startTimeNs) / 1_000_000
+
+            // ✅ End memory usage
+            val endUsedMemory = runtime.totalMemory() - runtime.freeMemory()
+            val usedMemoryKB = (endUsedMemory - startUsedMemory) / 1024
+
+            // Optional: Native heap (more accurate for ML models)
+            val nativeHeapKB = Debug.getNativeHeapAllocatedSize() / 1024
+
+            Logger.d("""
+            Enrollment successful:
+            Threshold = $threshold
+            Samples = $sampleCount
+            CPU Time = ${durationMs} ms
+            RAM Usage (Java Heap Delta) = ${usedMemoryKB} KB
+            Native Heap Usage = ${nativeHeapKB} KB
+        """.trimIndent())
 
             return EnrollmentResult(
                 success = true,
                 threshold = threshold,
                 trainedSampleCount = sampleCount
             )
+
         } catch (e: Exception) {
-            Logger.e("Enrollment failed: ${e.message}", e)
+
+            val endTimeNs = SystemClock.elapsedRealtimeNanos()
+            val durationMs = (endTimeNs) / 1_000_000
+
+            Logger.e("Enrollment failed after ${durationMs} ms: ${e.message}", e)
+
             return EnrollmentResult(
                 success = false,
                 message = "Enrollment exception: ${e.message}"
