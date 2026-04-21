@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Debug
 import com.ca.continuousauth.authmodel.AuthModel
 import com.ca.continuousauth.data.ReEnrollmentDataManager
+import com.ca.continuousauth.security.SecureModelStorage
 import com.ca.continuousauth.utils.Logger
 import kotlinx.coroutines.*
 import java.io.DataInputStream
@@ -153,7 +154,11 @@ class AuthenticationManager(
                 Logger.e("Threshold file not found: ${thresholdFile.absolutePath}")
                 null
             } else {
-                DataInputStream(FileInputStream(thresholdFile)).use { it.readFloat() }
+                if (SecureModelStorage.isLegacyPlaintextFile(thresholdFile)) {
+                    DataInputStream(FileInputStream(thresholdFile)).use { it.readFloat() }
+                } else {
+                    SecureModelStorage.decryptThreshold(thresholdFile)
+                }
             }
         } catch (e: Exception) {
             Logger.e("Failed to load threshold: ${e.message}", e)

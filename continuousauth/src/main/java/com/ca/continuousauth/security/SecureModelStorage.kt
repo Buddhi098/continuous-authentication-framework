@@ -446,13 +446,13 @@ object SecureModelStorage {
         return try {
             FileInputStream(file).use { fis ->
                 val firstByte = fis.read()
-                // Our encrypted blob always starts with version byte 0x01
+                // Our encrypted blob always starts with version byte 0x01 or 0x02
                 // Java ObjectOutputStream starts with 0xAC (magic)
                 // DataOutputStream float can start with various bytes
-                // The only collision risk is if plaintext happens to start with 0x01,
+                // The only collision risk is if plaintext happens to start with 0x01 or 0x02,
                 // but then the IV length field (bytes 2-5) would need to equal 12,
                 // which is extremely unlikely for random data
-                firstByte != BLOB_VERSION.toInt()
+                firstByte != BLOB_VERSION.toInt() && firstByte != LEGACY_BLOB_VERSION.toInt()
             }
         } catch (e: Exception) {
             Logger.e("Error checking file format: ${e.message}")
