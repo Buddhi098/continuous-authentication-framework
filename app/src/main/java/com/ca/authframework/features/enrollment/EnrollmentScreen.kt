@@ -301,9 +301,8 @@ fun EnrollmentScreen(viewModel: EnrollmentViewModel, targetSamples: Int = 100) {
                                                                 ) {
                                                                         Text(
                                                                                 text =
-                                                                                        if (isFusionReady &&
-                                                                                                        fusionThreshold >
-                                                                                                                0f
+                                                                                        if (fusionThreshold >
+                                                                                                        0f
                                                                                         )
                                                                                                 "%.4f".format(
                                                                                                         fusionThreshold

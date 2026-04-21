@@ -1246,7 +1246,7 @@ class ContinuousAuth(
     }
 
     fun getFusionThreshold(): Float? {
-        return if (_isFusionModelReady.value) fusionEnrollmentManager.loadThreshold() else null
+        return fusionEnrollmentManager.loadThreshold()
     }
 
     fun getTrainedSampleCount(): Int? {
