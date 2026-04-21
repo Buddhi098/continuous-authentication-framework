@@ -48,7 +48,7 @@ fun AppTopBar(status: String, score: String, currentAuthPercentage: String) {
                                 ) {
                                         StatusBadge("Status", status)
                                         StatusBadge("Score", score)
-                                        StatusBadge("AC", currentAuthPercentage)
+                                        StatusBadge("WAC", currentAuthPercentage)
                                 }
                         }
                 }

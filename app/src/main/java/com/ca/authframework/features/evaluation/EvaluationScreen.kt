@@ -211,7 +211,7 @@ fun EvaluationScreen(viewModel: EvaluationViewModel) {
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
-                    Text("Final Confidence", style = MaterialTheme.typography.labelMedium)
+                    Text("Weighted Authentication Confidence (%)", style = MaterialTheme.typography.labelMedium)
 
                     Text(
                         text = "${"%.1f".format(viewModel.finalConfidence)}%",

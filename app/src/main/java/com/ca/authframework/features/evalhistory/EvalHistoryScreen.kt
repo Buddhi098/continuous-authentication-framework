@@ -261,12 +261,12 @@ private fun EvaluationRecordCard(
             ) {
 
                 MetricItem(
-                    label = "Weighted Confidence",
+                    label = "WAC",
                     value = "%.1f%%".format(record.finalConfidence)
                 )
 
                 MetricItem(
-                    label = "Samples",
+                    label = "Auth Attempts",
                     value = record.samplesProcessed.toString()
                 )
             }

@@ -32,8 +32,6 @@ fun MainNavHost(
                     authenticationViewModel = authenticationViewModel,
                     evaluationViewModel = evaluationViewModel,
                     targetSamples = targetSamples,
-                    tdtLockEnabled = tdtLockEnabled,
-                    onTdtLockToggle = onTdtLockToggle
             )
         }
         composable(Destination.EvalHistory.route) {

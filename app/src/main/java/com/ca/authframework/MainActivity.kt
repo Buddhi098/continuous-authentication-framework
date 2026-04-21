@@ -10,7 +10,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.navigation.compose.rememberNavController
-import com.ca.authframework.core.ui.components.AppLockScreen
 import com.ca.authframework.core.ui.layout.AppTopBar
 import com.ca.authframework.core.ui.layout.BottomNavigationBar
 import com.ca.authframework.core.ui.navigation.MainNavHost
@@ -20,9 +19,6 @@ import com.ca.authframework.features.dashboard.DashboardViewModel
 import com.ca.authframework.features.enrollment.EnrollmentViewModel
 import com.ca.authframework.features.evalhistory.EvaluationRepository
 import com.ca.authframework.features.evaluation.EvaluationViewModel
-import com.ca.authframework.features.tdtlock.TdtComputer
-import com.ca.authframework.features.tdtlock.TdtLockConfig
-import com.ca.authframework.features.tdtlock.TdtLockFeature
 import com.ca.continuousauth.ContinuousAuth
 import com.ca.continuousauth.states.TouchEventData
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -45,55 +41,43 @@ class MainActivity : ComponentActivity() {
     }
 
     private val touchEventFlow =
-            MutableSharedFlow<TouchEventData>(replay = 0, extraBufferCapacity = 256)
+        MutableSharedFlow<TouchEventData>(replay = 0, extraBufferCapacity = 256)
 
     private lateinit var enrollmentViewModel: EnrollmentViewModel
     private lateinit var authenticationViewModel: AuthenticationViewModel
     private lateinit var evaluationViewModel: EvaluationViewModel
     private lateinit var evaluationRepository: EvaluationRepository
 
-    // TDT Lock Feature (plug-and-play)
-    private val tdtLockConfig =
-            TdtLockConfig(windowSize = 10, lockThreshold = 0.5f, unlockThreshold = 0.6f)
-    private val tdtLockFeature = TdtLockFeature(tdtLockConfig)
-
-    // Shared TDT computer for global state
-    private val globalTdtComputer = TdtComputer(tdtLockConfig)
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
         ContinuousAuthManager.continuousAuth =
-                ContinuousAuth(
-                        context = applicationContext,
-                        touchEventFlow = touchEventFlow.asSharedFlow(),
-                        enrollmentSamples = TARGET_SAMPLES,
-                        shouldLogFeatureVector = true,
-                        enableLog = true
-                )
+            ContinuousAuth(
+                context = applicationContext,
+                touchEventFlow = touchEventFlow.asSharedFlow(),
+                enrollmentSamples = TARGET_SAMPLES,
+                shouldLogFeatureVector = true,
+                enableLog = true
+            )
 
         enrollmentViewModel =
-                EnrollmentViewModel(applicationContext, ContinuousAuthManager.continuousAuth)
+            EnrollmentViewModel(applicationContext, ContinuousAuthManager.continuousAuth)
 
         val dashboardViewModel = DashboardViewModel(application)
 
         authenticationViewModel =
-                AuthenticationViewModel(ContinuousAuthManager.continuousAuth, globalTdtComputer)
+            AuthenticationViewModel(ContinuousAuthManager.continuousAuth)
 
         evaluationRepository = EvaluationRepository(applicationContext)
 
         evaluationViewModel =
-                EvaluationViewModel(
-                        applicationContext,
-                        ContinuousAuthManager.continuousAuth,
-                        authenticationViewModel,
-                        evaluationRepository
-                )
-
-        // Enable TDT lock feature (can be toggled via settings)
-        //        tdtLockFeature.enable()
-        tdtLockFeature.disable()
+            EvaluationViewModel(
+                applicationContext,
+                ContinuousAuthManager.continuousAuth,
+                authenticationViewModel,
+                evaluationRepository
+            )
 
         setContent {
             AuthframeworkTheme {
@@ -104,56 +88,41 @@ class MainActivity : ComponentActivity() {
                 val evaluationRunning = evaluationViewModel.evaluationRunning
 
                 val currentAuthStatus =
-                        if ((evaluationRunning || isAuthRunning) && lastAuthResult != null) {
-                            if (lastAuthResult.isAuthenticated) "Authenticated" else "Rejected"
-                        } else "Unknown"
+                    if ((evaluationRunning || isAuthRunning) && lastAuthResult != null) {
+                        if (lastAuthResult.isAuthenticated) "Authenticated" else "Rejected"
+                    } else "Unknown"
 
-                val currentScore = lastAuthResult?.authenticationScore?.let { "%.3f".format(it) } ?: "N/A"
+                val currentScore =
+                    lastAuthResult?.authenticationScore?.let { "%.3f".format(it) } ?: "N/A"
 
                 val currentAuthPercentage =
-                    lastAuthResult?.weightedConfidence?.let { "%.1f%%".format(it * 100) } ?: "N/A"
-
-                // Collect TDT lock state
-                val isLocked by tdtLockFeature.isLocked.collectAsState()
-                val isFeatureEnabled by tdtLockFeature.isEnabled.collectAsState()
-
-                // Forward auth results to TDT lock feature
-                LaunchedEffect(lastAuthResult) {
-                    lastAuthResult?.let { result ->
-                        tdtLockFeature.processResult(result.isAuthenticated)
-                    }
-                }
+                    lastAuthResult?.weightedConfidence?.let { "%.1f%%".format(it * 100) }
+                        ?: "N/A"
 
                 Scaffold(
-                        topBar = {
-                            AppTopBar(
-                                    status = currentAuthStatus,
-                                    score = currentScore,
-                                    currentAuthPercentage = currentAuthPercentage
-                            )
-                        },
-                        bottomBar = { BottomNavigationBar(navController) }
-                ) { innerPadding ->
-                    Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
-                        MainNavHost(
-                                navController = navController,
-                                dashboardViewModel = dashboardViewModel,
-                                enrollmentViewModel = enrollmentViewModel,
-                                authenticationViewModel = authenticationViewModel,
-                                evaluationViewModel = evaluationViewModel,
-                                evaluationRepository = evaluationRepository,
-                                targetSamples = TARGET_SAMPLES,
-                                tdtLockEnabled = isFeatureEnabled,
-                                onTdtLockToggle = { enabled ->
-                                    if (enabled) tdtLockFeature.enable()
-                                    else tdtLockFeature.disable()
-                                }
+                    topBar = {
+                        AppTopBar(
+                            status = currentAuthStatus,
+                            score = currentScore,
+                            currentAuthPercentage = currentAuthPercentage
                         )
-
-                        // Show lock screen if feature is enabled and locked
-                        if (isFeatureEnabled && isLocked) {
-                            AppLockScreen()
-                        }
+                    },
+                    bottomBar = { BottomNavigationBar(navController) }
+                ) { innerPadding ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(innerPadding)
+                    ) {
+                        MainNavHost(
+                            navController = navController,
+                            dashboardViewModel = dashboardViewModel,
+                            enrollmentViewModel = enrollmentViewModel,
+                            authenticationViewModel = authenticationViewModel,
+                            evaluationViewModel = evaluationViewModel,
+                            evaluationRepository = evaluationRepository,
+                            targetSamples = TARGET_SAMPLES
+                        )
                     }
                 }
             }
@@ -165,19 +134,19 @@ class MainActivity : ComponentActivity() {
     /* ------------------------------------------------------------------ */
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
         val touchData =
-                TouchEventData(
-                        action = event.actionMasked,
-                        timestamp = event.eventTime,
-                        downTime = event.downTime,
-                        x = event.x,
-                        y = event.y,
-                        pressure = event.pressure,
-                        size = event.size,
-                        orientation = event.orientation,
-                        touchMajor = event.touchMajor,
-                        touchMinor = event.touchMinor,
-                        pointerCount = event.pointerCount
-                )
+            TouchEventData(
+                action = event.actionMasked,
+                timestamp = event.eventTime,
+                downTime = event.downTime,
+                x = event.x,
+                y = event.y,
+                pressure = event.pressure,
+                size = event.size,
+                orientation = event.orientation,
+                touchMajor = event.touchMajor,
+                touchMinor = event.touchMinor,
+                pointerCount = event.pointerCount
+            )
 
         touchEventFlow.tryEmit(touchData)
         return super.dispatchTouchEvent(event)
@@ -185,34 +154,12 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        //        authenticationViewModel.startAuthentication()
+        // authenticationViewModel.startAuthentication()
     }
 
     override fun onPause() {
         super.onPause()
         authenticationViewModel.stopAuthentication()
         enrollmentViewModel.pauseCollection()
-    }
-
-    /* ------------------------------------------------------------------ */
-    /*              TDT Lock Feature Controls                              */
-    /* ------------------------------------------------------------------ */
-
-    /** Enable TDT-based auto-lock feature */
-    fun enableTdtLock() {
-        tdtLockFeature.enable()
-    }
-
-    /** Disable TDT-based auto-lock feature */
-    fun disableTdtLock() {
-        tdtLockFeature.disable()
-    }
-
-    /** Check if TDT lock feature is enabled */
-    fun isTdtLockEnabled(): Boolean = tdtLockFeature.isEnabled.value
-
-    /** Reset TDT lock feature state */
-    fun resetTdtLock() {
-        tdtLockFeature.reset()
     }
 }
