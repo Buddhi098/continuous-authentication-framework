@@ -8,6 +8,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.io.*
 import java.util.concurrent.atomic.AtomicInteger
+import com.ca.continuousauth.security.SecureModelStorage
 
 class ReEnrollmentDataManager(
     private val storedVectorsFile: File,
@@ -33,23 +34,15 @@ class ReEnrollmentDataManager(
     suspend fun load() {
         if (!storedVectorsFile.exists()) return
 
-        if (storedVectorsFile.length() == 0L) {
-            storedVectorsFile.delete()
-            return
-        }
-
         vectorLock.withLock {
             withContext(Dispatchers.IO) {
                 try {
-                    ObjectInputStream(FileInputStream(storedVectorsFile)).use { ois ->
-                        @Suppress("UNCHECKED_CAST")
-                        val loaded = ois.readObject() as? List<List<Float>>
+                    val loaded = SecureModelStorage.decryptVectors(storedVectorsFile)
 
-                        if (!loaded.isNullOrEmpty()) {
-                            vectors.clear()
-                            vectors.addAll(loaded)
-                            _vectorCount.value = vectors.size
-                        }
+                    if (!loaded.isNullOrEmpty()) {
+                        vectors.clear()
+                        vectors.addAll(loaded)
+                        _vectorCount.value = vectors.size
                     }
                 } catch (e: Exception) {
                     storedVectorsFile.delete()
@@ -85,9 +78,7 @@ class ReEnrollmentDataManager(
     // ----------------------------
     private fun saveInternal() {
         try {
-            ObjectOutputStream(FileOutputStream(storedVectorsFile)).use {
-                it.writeObject(vectors)
-            }
+            SecureModelStorage.encryptVectors(vectors, storedVectorsFile)
         } catch (_: Exception) {
         }
     }

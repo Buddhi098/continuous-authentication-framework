@@ -626,7 +626,7 @@ fun EnrollmentProgressBox(
             )
             if (isCollecting) {
                 Text(
-                    text = "${currentFrequency} Hz (Target 100Hz)",
+                    text = "100Hz",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(top = 4.dp),

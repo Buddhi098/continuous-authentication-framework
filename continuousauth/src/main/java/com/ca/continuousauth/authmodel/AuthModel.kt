@@ -9,6 +9,7 @@ import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.ObjectInputStream
 import java.io.ObjectOutputStream
+import com.ca.continuousauth.security.SecureModelStorage
 import java.nio.ByteBuffer
 import java.nio.FloatBuffer
 import java.nio.IntBuffer
@@ -414,9 +415,7 @@ class AuthModel(
                     }
                 }
 
-                FileOutputStream(checkpointFile).use { fos ->
-                    ObjectOutputStream(fos).use { oos -> oos.writeObject(weightsMap) }
-                }
+                SecureModelStorage.encryptCheckpoint(weightsMap, checkpointFile)
                 return true
             } catch (e: Exception) {
                 Logger.e("Failed to save checkpoint: ${e.message}", e)
@@ -431,23 +430,16 @@ class AuthModel(
             if (!checkpointFile.exists()) return false
 
             try {
-                val loadedWeights: HashMap<String, Any>? = FileInputStream(checkpointFile).use { fis ->
-                    ObjectInputStream(fis).use { ois ->
-                        @Suppress("UNCHECKED_CAST")
-                        ois.readObject() as? HashMap<String, Any>
-                    }
-                } ?: return false
+                val loadedWeights = SecureModelStorage.decryptCheckpoint(checkpointFile) ?: return false
 
                 val inputs: MutableMap<String, Any> = HashMap()
-                if (loadedWeights != null) {
-                    for ((key, array) in loadedWeights) {
-                        inputs[key] = when (array) {
-                            is FloatArray -> FloatBuffer.wrap(array)
-                            is LongArray -> LongBuffer.wrap(array)
-                            is IntArray -> IntBuffer.wrap(array)
-                            is ByteArray -> ByteBuffer.wrap(array)
-                            else -> array
-                        }
+                for ((key, array) in loadedWeights) {
+                    inputs[key] = when (array) {
+                        is FloatArray -> FloatBuffer.wrap(array)
+                        is LongArray -> LongBuffer.wrap(array)
+                        is IntArray -> IntBuffer.wrap(array)
+                        is ByteArray -> ByteBuffer.wrap(array)
+                        else -> array
                     }
                 }
 

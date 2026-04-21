@@ -1,11 +1,16 @@
 package com.ca.continuousauth.featuremodalities.dataprocessing.scalers
 
 import android.content.Context
+import com.ca.continuousauth.security.SecureModelStorage
 import com.ca.continuousauth.utils.Logger
+import java.io.File
 
 /**
- * MinMaxScaler scales features to a fixed range [0, 1] with persistent storage. Min and max are
- * loaded from SharedPreferences if available and updated on fitTransform.
+ * MinMaxScaler scales features to a fixed range [0, 1] with persistent encrypted storage.
+ * Min and max are loaded from an encrypted file if available and updated on fitTransform.
+ *
+ * Storage: Parameters are encrypted via [SecureModelStorage] using AES-256-GCM with
+ * HMAC-SHA256 integrity verification. Plaintext never touches disk.
  *
  * Thread-safe: All public methods are synchronized.
  */
@@ -14,16 +19,22 @@ class MinMaxScaler(private val context: Context, private val prefsName: String) 
     private var min: FloatArray? = null
     private var max: FloatArray? = null
 
+    /** Encrypted file for scaler parameters — replaces legacy SharedPreferences */
+    private val encryptedFile: File
+        get() = File(context.filesDir, "${prefsName}.enc")
+
+    /** Legacy SharedPreferences name for one-time migration */
     private val KEY_MIN = "min"
     private val KEY_MAX = "max"
 
     init {
-        loadFromPrefs()
+        migrateFromPrefsIfNeeded()
+        loadFromEncrypted()
     }
 
     /**
-     * Fit the scaler on the data and return the transformed features. Updates SharedPreferences
-     * with new min and max.
+     * Fit the scaler on the data and return the transformed features. Saves encrypted
+     * parameters to disk.
      *
      * @throws IllegalArgumentException if features is empty, contains empty rows,
      * ```
@@ -55,7 +66,7 @@ class MinMaxScaler(private val context: Context, private val prefsName: String) 
         min = localMin
         max = localMax
 
-        saveToPrefs()
+        saveToEncrypted()
         return transform(features)
     }
 
@@ -87,12 +98,12 @@ class MinMaxScaler(private val context: Context, private val prefsName: String) 
 
     @Synchronized
     override fun save() {
-        saveToPrefs()
+        saveToEncrypted()
     }
 
     @Synchronized
     override fun load() {
-        loadFromPrefs()
+        loadFromEncrypted()
     }
 
     /** Check if the scaler has been fitted with training data. */
@@ -111,47 +122,79 @@ class MinMaxScaler(private val context: Context, private val prefsName: String) 
     fun getMax(): FloatArray = max ?: throw IllegalStateException("Scaler has not been fitted yet.")
 
     /**
-     * Load min and max from SharedPreferences if they exist. Handles corrupted data gracefully by
-     * logging a warning and resetting state.
+     * Load min and max from encrypted file. Handles missing or corrupted data
+     * gracefully by logging a warning and resetting state.
      */
-    private fun loadFromPrefs() {
-        val prefs = context.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
-        val minStr = prefs.getString(KEY_MIN, null)
-        val maxStr = prefs.getString(KEY_MAX, null)
+    private fun loadFromEncrypted() {
+        val file = encryptedFile
+        if (!file.exists()) {
+            Logger.d("No encrypted scaler file found: ${file.name}")
+            return
+        }
 
-        Logger.d("Loading scaler: min=$minStr, max=$maxStr")
-
-        if (!minStr.isNullOrEmpty() && !maxStr.isNullOrEmpty()) {
-            try {
-                val minParts = minStr.split(",").filter { it.isNotBlank() }
-                val maxParts = maxStr.split(",").filter { it.isNotBlank() }
-
-                if (minParts.isNotEmpty() && maxParts.isNotEmpty() && minParts.size == maxParts.size
-                ) {
-                    min = minParts.map { it.toFloat() }.toFloatArray()
-                    max = maxParts.map { it.toFloat() }.toFloatArray()
-                } else {
-                    Logger.d(
-                            "[WARN] Scaler prefs have mismatched sizes: min=${minParts.size}, max=${maxParts.size}"
-                    )
-                    min = null
-                    max = null
-                }
-            } catch (e: NumberFormatException) {
-                Logger.d("[WARN] Failed to parse scaler prefs, resetting: ${e.message}")
+        try {
+            val params = SecureModelStorage.decryptScalerParams(file)
+            if (params != null) {
+                min = params.first
+                max = params.second
+                Logger.d("Scaler loaded from encrypted file: ${min?.size} features")
+            } else {
+                Logger.d("[WARN] Failed to decrypt scaler params, resetting")
                 min = null
                 max = null
             }
+        } catch (e: Exception) {
+            Logger.e("Error loading encrypted scaler: ${e.message}", e)
+            min = null
+            max = null
         }
     }
 
-    /** Save min and max to SharedPreferences. */
-    private fun saveToPrefs() {
-        val prefs = context.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
-        val editor = prefs.edit()
-        editor.putString(KEY_MIN, min?.joinToString(","))
-        editor.putString(KEY_MAX, max?.joinToString(","))
-        editor.apply()
-        Logger.d("Saved scaler: min=${min?.joinToString(",")}, max=${max?.joinToString(",")}")
+    /** Save min and max to encrypted file via SecureModelStorage. */
+    private fun saveToEncrypted() {
+        val localMin = min ?: return
+        val localMax = max ?: return
+
+        try {
+            SecureModelStorage.encryptScalerParams(localMin, localMax, encryptedFile)
+            Logger.d("Scaler saved to encrypted file: ${localMin.size} features")
+        } catch (e: Exception) {
+            Logger.e("Error saving encrypted scaler: ${e.message}", e)
+        }
+    }
+
+    /**
+     * One-time migration: If legacy SharedPreferences exist but no encrypted file,
+     * read the plaintext values, encrypt them, and delete the SharedPreferences.
+     */
+    private fun migrateFromPrefsIfNeeded() {
+        val file = encryptedFile
+        if (file.exists()) return // Already migrated
+
+        try {
+            val prefs = context.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
+            val minStr = prefs.getString(KEY_MIN, null)
+            val maxStr = prefs.getString(KEY_MAX, null)
+
+            if (!minStr.isNullOrEmpty() && !maxStr.isNullOrEmpty()) {
+                val minParts = minStr.split(",").filter { it.isNotBlank() }
+                val maxParts = maxStr.split(",").filter { it.isNotBlank() }
+
+                if (minParts.isNotEmpty() && maxParts.isNotEmpty() && minParts.size == maxParts.size) {
+                    val migratedMin = minParts.map { it.toFloat() }.toFloatArray()
+                    val migratedMax = maxParts.map { it.toFloat() }.toFloatArray()
+
+                    // Encrypt and write
+                    SecureModelStorage.encryptScalerParams(migratedMin, migratedMax, file)
+
+                    // Clear the plaintext SharedPreferences
+                    prefs.edit().clear().apply()
+
+                    Logger.d("Migrated MinMaxScaler from SharedPreferences → encrypted file (${minParts.size} features)")
+                }
+            }
+        } catch (e: Exception) {
+            Logger.e("MinMaxScaler migration failed (non-fatal): ${e.message}", e)
+        }
     }
 }

@@ -22,32 +22,40 @@ import java.util.*
 
 @Composable
 fun EvalHistoryScreen(repository: EvaluationRepository) {
+
     var records by remember { mutableStateOf(repository.getAllRecords()) }
     var showClearDialog by remember { mutableStateOf(false) }
     var recordToDelete by remember { mutableStateOf<EvaluationRecord?>(null) }
 
-    // Refresh records when screen is displayed
-    LaunchedEffect(Unit) { records = repository.getAllRecords() }
+    LaunchedEffect(Unit) {
+        records = repository.getAllRecords()
+    }
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+    ) {
+
         // Header
         Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
+
             Text(
-                    text = "Evaluation History",
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold
+                text = "Evaluation History",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold
             )
 
             if (records.isNotEmpty()) {
                 IconButton(onClick = { showClearDialog = true }) {
                     Icon(
-                            imageVector = Icons.Default.Delete,
-                            contentDescription = "Clear History",
-                            tint = MaterialTheme.colorScheme.error
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = "Clear History",
+                        tint = MaterialTheme.colorScheme.error
                     )
                 }
             }
@@ -56,152 +64,182 @@ fun EvalHistoryScreen(repository: EvaluationRepository) {
         Spacer(Modifier.height(16.dp))
 
         if (records.isEmpty()) {
+
             // Empty State
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
                 Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
+
                     Icon(
-                            imageVector = Icons.Default.History,
-                            contentDescription = null,
-                            modifier = Modifier.size(80.dp),
-                            tint = MaterialTheme.colorScheme.surfaceVariant
+                        imageVector = Icons.Default.History,
+                        contentDescription = null,
+                        modifier = Modifier.size(80.dp),
+                        tint = MaterialTheme.colorScheme.surfaceVariant
                     )
+
                     Text(
-                            text = "No Evaluations Yet",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        text = "No Evaluations Yet",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+
                     Text(
-                            text = "Complete an evaluation to see it here.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.Center
+                        text = "Complete an evaluation to see it here.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center
                     )
                 }
             }
+
         } else {
-            // Records List
+
             LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 items(records, key = { it.id }) { record ->
-                    EvaluationRecordCard(record = record, onDelete = { recordToDelete = record })
+                    EvaluationRecordCard(
+                        record = record,
+                        onDelete = { recordToDelete = record }
+                    )
                 }
             }
         }
     }
 
-    // Clear All Confirmation Dialog
+    // ---------------- CLEAR ALL DIALOG ----------------
     if (showClearDialog) {
         AlertDialog(
-                onDismissRequest = { showClearDialog = false },
-                title = { Text("Clear History") },
-                text = {
-                    Text(
-                            "Are you sure you want to delete all evaluation records? This action cannot be undone."
-                    )
-                },
-                confirmButton = {
-                    TextButton(
-                            onClick = {
-                                repository.clearRecords()
-                                records = emptyList()
-                                showClearDialog = false
-                            }
-                    ) { Text("Clear", color = MaterialTheme.colorScheme.error) }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showClearDialog = false }) { Text("Cancel") }
+            onDismissRequest = { showClearDialog = false },
+            title = { Text("Clear History") },
+            text = {
+                Text("Are you sure you want to delete all evaluation records? This action cannot be undone.")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        repository.clearRecords()
+                        records = emptyList()
+                        showClearDialog = false
+                    }
+                ) {
+                    Text("Clear", color = MaterialTheme.colorScheme.error)
                 }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearDialog = false }) {
+                    Text("Cancel")
+                }
+            }
         )
     }
 
-    // Delete Single Record Confirmation Dialog
+    // ---------------- DELETE SINGLE RECORD DIALOG ----------------
     recordToDelete?.let { record ->
         AlertDialog(
-                onDismissRequest = { recordToDelete = null },
-                title = { Text("Delete Record") },
-                text = { Text("Delete evaluation record for \"${record.evaluatorName}\"?") },
-                confirmButton = {
-                    TextButton(
-                            onClick = {
-                                repository.deleteRecord(record.id)
-                                records = repository.getAllRecords()
-                                recordToDelete = null
-                            }
-                    ) { Text("Delete", color = MaterialTheme.colorScheme.error) }
-                },
-                dismissButton = {
-                    TextButton(onClick = { recordToDelete = null }) { Text("Cancel") }
+            onDismissRequest = { recordToDelete = null },
+            title = { Text("Delete Record") },
+            text = { Text("Delete evaluation record for \"${record.evaluatorName}\"?") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        repository.deleteRecord(record.id)
+                        records = repository.getAllRecords()
+                        recordToDelete = null
+                    }
+                ) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
                 }
+            },
+            dismissButton = {
+                TextButton(onClick = { recordToDelete = null }) {
+                    Text("Cancel")
+                }
+            }
         )
     }
 }
 
 @Composable
-private fun EvaluationRecordCard(record: EvaluationRecord, onDelete: () -> Unit) {
+private fun EvaluationRecordCard(
+    record: EvaluationRecord,
+    onDelete: () -> Unit
+) {
+
     val dateFormat = SimpleDateFormat("MMM dd, yyyy • HH:mm", Locale.getDefault())
     val formattedDate = dateFormat.format(Date(record.timestamp))
 
-    val labelColor =
-            when (record.evaluatorLabel) {
-                EvaluatorLabel.IMPOSTOR -> MaterialTheme.colorScheme.error
-                EvaluatorLabel.LEGITIMATE -> SuccessDark
-            }
+    val labelColor = when (record.evaluatorLabel) {
+        EvaluatorLabel.IMPOSTOR -> MaterialTheme.colorScheme.error
+        EvaluatorLabel.LEGITIMATE -> SuccessDark
+    }
 
-    ElevatedCard(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+
         Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Header: Name & Label & Delete
+
+            // Header
             Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
+
                 Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.weight(1f)
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.weight(1f)
                 ) {
                     Icon(
-                            imageVector = Icons.Default.Person,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(20.dp)
+                        imageVector = Icons.Default.Person,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
                     )
+
                     Text(
-                            text = record.evaluatorName,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold
+                        text = record.evaluatorName,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
                     )
                 }
 
                 Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
+
                     SuggestionChip(
-                            onClick = {},
-                            label = {
-                                Text(
-                                        text =
-                                                record.evaluatorLabel.name.lowercase()
-                                                        .replaceFirstChar { it.uppercase() },
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = labelColor
-                                )
-                            }
+                        onClick = {},
+                        label = {
+                            Text(
+                                text = record.evaluatorLabel.name.lowercase()
+                                    .replaceFirstChar { it.uppercase() },
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = labelColor
+                            )
+                        }
                     )
 
-                    IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
+                    IconButton(
+                        onClick = onDelete,
+                        modifier = Modifier.size(32.dp)
+                    ) {
                         Icon(
-                                imageVector = Icons.Outlined.Delete,
-                                contentDescription = "Delete",
-                                tint = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.size(18.dp)
+                            imageVector = Icons.Outlined.Delete,
+                            contentDescription = "Delete",
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(18.dp)
                         )
                     }
                 }
@@ -209,48 +247,51 @@ private fun EvaluationRecordCard(record: EvaluationRecord, onDelete: () -> Unit)
 
             // Timestamp
             Text(
-                    text = formattedDate,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                text = formattedDate,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
             HorizontalDivider()
 
-            // Metrics Row
+            // ONLY CORE METRICS
             Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly
             ) {
-                MetricItem(label = "Accuracy", value = "%.1f%%".format(record.overallWindowAccuracy * 100.0))
-                MetricItem(label = "Confidence", value = "%.1f%%".format(record.finalConfidence))
-                MetricItem(label = "Samples", value = record.samplesProcessed.toString())
-            }
 
-            // Score Metrics Row
-            Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly
-            ) {
-                MetricItem(label = "Average Score", value = "%.4f".format(record.averageScore))
-                MetricItem(label = "Median Score", value = "%.4f".format(record.medianScore))
+                MetricItem(
+                    label = "Weighted Confidence",
+                    value = "%.1f%%".format(record.finalConfidence)
+                )
+
+                MetricItem(
+                    label = "Samples",
+                    value = record.samplesProcessed.toString()
+                )
             }
         }
     }
 }
 
 @Composable
-private fun MetricItem(label: String, value: String) {
+private fun MetricItem(
+    label: String,
+    value: String
+) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
+
         Text(
-                text = value,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary
+            text = value,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary
         )
+
         Text(
-                text = label,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 }

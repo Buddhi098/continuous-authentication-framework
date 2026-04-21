@@ -11,6 +11,7 @@ import java.io.DataOutputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import com.ca.continuousauth.security.SecureModelStorage
 
 class EnrollmentManager(
         private val authModel: AuthModel,
@@ -223,9 +224,7 @@ class EnrollmentManager(
     // --------------------------------------------------
     private fun saveThreshold(threshold: Float): Boolean {
         return try {
-            FileOutputStream(thresholdFile).use { fos ->
-                DataOutputStream(fos).use { dos -> dos.writeFloat(threshold) }
-            }
+            SecureModelStorage.encryptThreshold(threshold, thresholdFile)
             true
         } catch (e: Exception) {
             Logger.e("Failed to write threshold file: ${e.message}", e)
@@ -244,13 +243,11 @@ class EnrollmentManager(
                 return null
             }
 
-            FileInputStream(thresholdFile).use { fis ->
-                DataInputStream(fis).use { dis ->
-                    val threshold = dis.readFloat()
-                    Logger.d("Threshold loaded: $threshold")
-                    threshold
-                }
+            val threshold = SecureModelStorage.decryptThreshold(thresholdFile)
+            if (threshold != null) {
+                Logger.d("Threshold loaded: $threshold")
             }
+            threshold
         } catch (e: Exception) {
             Logger.e("Failed to load threshold: ${e.message}", e)
             null
@@ -266,7 +263,7 @@ class EnrollmentManager(
             val json = org.json.JSONObject()
             json.put("trained_samples", sampleCount)
             json.put("timestamp", System.currentTimeMillis())
-            metadataFile.writeText(json.toString())
+            SecureModelStorage.encryptMetadata(json.toString(), metadataFile)
         } catch (e: Exception) {
             Logger.e("Failed to save enrollment metadata", e)
         }
@@ -275,7 +272,8 @@ class EnrollmentManager(
     fun loadMetadata(): Int? {
         return try {
             if (!metadataFile.exists()) return null
-            val json = org.json.JSONObject(metadataFile.readText())
+            val decryptedData = SecureModelStorage.decryptMetadata(metadataFile) ?: return null
+            val json = org.json.JSONObject(decryptedData)
             if (json.has("trained_samples")) {
                 json.getInt("trained_samples")
             } else {

@@ -16,11 +16,16 @@ import com.ca.continuousauth.states.TouchEventData
 import com.ca.continuousauth.utils.Logger
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import com.ca.continuousauth.security.IntegrityVerifier
+import com.ca.continuousauth.security.SecureKeyManager
+import com.ca.continuousauth.security.SecureModelStorage
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -175,17 +180,90 @@ class ContinuousAuth(
         // 2. Configure logger (preferably app-level, but kept here)
         Logger.setEnabled(enableLog)
 
-        // 3. Initialize file structure and models readiness from disk (background)
+        // 3. Initialize Keystore and verify artifact integrity (background)
         scope.launch(Dispatchers.IO) {
             if (!context.filesDir.exists() && !context.filesDir.mkdirs()) {
                 Logger.e("Context filesDir does not exist and could not be created.")
             }
+
+            // Boot-time integrity sweep: verify HMAC of all encrypted artifacts.
+            // If any file is tampered, force re-enrollment (fail-closed).
+            verifyAllArtifactIntegrity()
+
             _isCheckpointExists.value = checkpointFile.exists()
             _isFusionModelReady.value = fusionCheckpointFile.exists() && fusionThresholdFile.exists()
         }
 
         // 4. Trigger async state restoration
         restorePreviousState()
+    }
+
+    /**
+     * Boot-time integrity sweep: verifies the HMAC-SHA256 of every encrypted artifact.
+     * If any single file has been tampered with, ALL enrollment data is wiped and
+     * Keystore keys are deleted, forcing a fresh re-enrollment.
+     *
+     * This enforces a fail-closed security posture — partial compromise is not tolerated.
+     */
+    private fun verifyAllArtifactIntegrity() {
+        val encryptedFiles = listOf(
+            checkpointFile, thresholdFile, metadataFile, storedVectorsFile,
+            fusionCheckpointFile, fusionThresholdFile, fusionMetadataFile, fusionStoredVectorsFile,
+            stateFile
+        )
+
+        for (file in encryptedFiles) {
+            if (file.exists()) {
+                try {
+                    val blob = file.readBytes()
+                    IntegrityVerifier.verifyAndExtractData(blob)
+                } catch (e: SecurityException) {
+                    Logger.e("TAMPER DETECTED: ${file.name} — forcing full re-enrollment")
+                    // Wipe all artifacts and destroy keys (crypto-shredding)
+                    wipeAllArtifactsAndKeys()
+                    return
+                } catch (e: Exception) {
+                    Logger.e("Integrity check error for ${file.name}: ${e.message}")
+                    // Treat unexpected errors as potential tampering
+                    wipeAllArtifactsAndKeys()
+                    return
+                }
+            }
+        }
+        Logger.d("Boot-time integrity verification passed for all artifacts")
+    }
+
+    /**
+     * Nuclear wipe: deletes all encrypted files AND destroys Keystore keys,
+     * making any backed-up ciphertext irrecoverable.
+     */
+    private fun wipeAllArtifactsAndKeys() {
+        val allFiles = listOf(
+            checkpointFile, thresholdFile, metadataFile, storedVectorsFile,
+            fusionCheckpointFile, fusionThresholdFile, fusionMetadataFile, fusionStoredVectorsFile,
+            stateFile,
+            // Encrypted scaler files
+            File(context.filesDir, "sensor_min_max_scaler_prefs.enc"),
+            File(context.filesDir, "fusion_min_max_scaler_prefs.enc"),
+            File(context.filesDir, "sensor_standard_scaler_prefs.enc"),
+            File(context.filesDir, "fusion_standard_scaler_prefs.enc")
+        )
+
+        for (file in allFiles) {
+            try {
+                if (file.exists()) file.delete()
+            } catch (e: Exception) {
+                Logger.e("Failed to delete ${file.name}: ${e.message}")
+            }
+        }
+
+        // Destroy Keystore keys — crypto-shredding
+        SecureKeyManager.deleteAllKeys()
+
+        _isCheckpointExists.value = false
+        _isFusionModelReady.value = false
+
+        Logger.e("SECURITY: All artifacts wiped and Keystore keys destroyed due to tampering")
     }
 
     private fun restorePreviousState() {
@@ -293,6 +371,8 @@ class ContinuousAuth(
                                 val isFusionComplete =
                                         touchEventFlow == null ||
                                                 fusionCollectedList.size >= enrollmentSamples
+
+                                val isComplete = sensorCollectedList.size + fusionCollectedList.size >= enrollmentSamples
 
                                 if (isSensorComplete) {
                                     Logger.d("Training sample collection completed.")
@@ -413,7 +493,8 @@ class ContinuousAuth(
                 // Binary format: much smaller and faster than JSON for large float arrays
                 // Format: [sensorCount][sensorDim][sensor floats...][fusionCount][fusionDim][fusion floats...]
                 withContext(Dispatchers.IO) {
-                    DataOutputStream(BufferedOutputStream(FileOutputStream(stateFile))).use { dos ->
+                    val baos = ByteArrayOutputStream()
+                    DataOutputStream(BufferedOutputStream(baos)).use { dos ->
                         // Write sensor data
                         dos.writeInt(sensorSnapshot.size)
                         val sensorDim = sensorSnapshot.firstOrNull()?.size ?: 0
@@ -434,6 +515,7 @@ class ContinuousAuth(
                             }
                         }
                     }
+                    SecureModelStorage.encryptCollectionState(baos.toByteArray(), stateFile)
                 }
                 Logger.d("Collection state saved (binary). Sensor=${sensorSnapshot.size}, Fusion=${fusionSnapshot.size}")
             } catch (e: Exception) {
@@ -446,7 +528,9 @@ class ContinuousAuth(
         return try {
             if (!stateFile.exists()) return null
 
-            DataInputStream(BufferedInputStream(FileInputStream(stateFile))).use { dis ->
+            val decryptedBytes = SecureModelStorage.decryptCollectionState(stateFile) ?: return null
+
+            DataInputStream(BufferedInputStream(ByteArrayInputStream(decryptedBytes))).use { dis ->
                 // Read sensor data
                 val sensorCount = dis.readInt()
                 val sensorDim = dis.readInt()
@@ -1127,15 +1211,24 @@ class ContinuousAuth(
             fusionThresholdFile.takeIf { it.exists() }?.delete()
             fusionMetadataFile.takeIf { it.exists() }?.delete()
 
+            // Delete encrypted scaler files
+            File(context.filesDir, "sensor_min_max_scaler_prefs.enc").takeIf { it.exists() }?.delete()
+            File(context.filesDir, "fusion_min_max_scaler_prefs.enc").takeIf { it.exists() }?.delete()
+            File(context.filesDir, "sensor_standard_scaler_prefs.enc").takeIf { it.exists() }?.delete()
+            File(context.filesDir, "fusion_standard_scaler_prefs.enc").takeIf { it.exists() }?.delete()
+
             stopAuthentication()
             scope.launch {
                 sensorAuthManager.clearStoredVectors()
                 fusionAuthManager.clearStoredVectors()
             }
 
+            // Destroy Keystore keys — makes all encrypted files irrecoverable (crypto-shredding)
+            SecureKeyManager.deleteAllKeys()
+
             _isCheckpointExists.value = checkpointFile.exists()
             _isFusionModelReady.value = false
-            Logger.d("Enrollment files deleted successfully")
+            Logger.d("Enrollment files and Keystore keys deleted successfully")
             true
         } catch (e: Exception) {
             Logger.e("Failed to delete enrollment files", e)

@@ -26,9 +26,6 @@ fun EvaluationScreen(viewModel: EvaluationViewModel) {
     val processed = viewModel.processedSamples
     val target = viewModel.targetSamples
 
-    // ✅ FIXED: TRUE overall accuracy from ViewModel
-    val overallWindowAccuracy = viewModel.overallWindowAccuracy * 100.0
-
     val canStart =
         !isRunning &&
                 sampleInput.toIntOrNull()?.let { it > 0 } == true &&
@@ -223,49 +220,23 @@ fun EvaluationScreen(viewModel: EvaluationViewModel) {
                     )
                 }
             }
-
-            // ✅ TRUE Overall Window Accuracy
-            ElevatedCard(
-                modifier = Modifier
-                    .weight(1f)
-                    .height(140.dp),
-                colors = CardDefaults.elevatedCardColors(
-                    containerColor = MaterialTheme.colorScheme.secondaryContainer
-                )
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(12.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    Text("Window Accuracy", style = MaterialTheme.typography.labelMedium)
-
-                    Text(
-                        text = "${"%.1f".format(overallWindowAccuracy)}%",
-                        style = MaterialTheme.typography.displaySmall,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
         }
 
-        // ---------------- STATS ----------------
-        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(16.dp)) {
-
-                Text(
-                    text = "Score Statistics",
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.padding(bottom = 12.dp)
-                )
-
-                StatRow("Average Score", "%.4f".format(viewModel.averageScore))
-                HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                StatRow("Median Score", "%.4f".format(viewModel.medianScore))
-            }
-        }
+//        // ---------------- STATS ----------------
+//        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+//            Column(modifier = Modifier.padding(16.dp)) {
+//
+//                Text(
+//                    text = "Score Statistics",
+//                    style = MaterialTheme.typography.titleMedium,
+//                    modifier = Modifier.padding(bottom = 12.dp)
+//                )
+//
+//                StatRow("Average Score", "%.4f".format(viewModel.averageScore))
+//                HorizontalDivider(Modifier.padding(vertical = 8.dp))
+//                StatRow("Median Score", "%.4f".format(viewModel.medianScore))
+//            }
+//        }
 
         Spacer(Modifier.weight(1f))
 
